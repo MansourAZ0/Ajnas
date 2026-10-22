@@ -1,0 +1,5 @@
+# Generated from the pinned package/model by scripts/prepare-vision.mjs.
+/vision-classic.js
+/wasm/
+/hand_landmarker.task
+/manifest.json
