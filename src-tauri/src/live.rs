@@ -115,12 +115,14 @@ impl Processor {
                         .candidates
                         .iter()
                         .map(|c| {
+                            let mut candidate_labels = labels;
+                            candidate_labels.show_octave = c.tonic_octave.is_some();
                             naghma_core::notation::SpelledNote::new(
                                 c.tonic.degree,
                                 c.tonic.accidental,
-                                3,
+                                c.tonic_octave.unwrap_or(3),
                             )
-                            .label(&labels)
+                            .label(&candidate_labels)
                         })
                         .collect();
                     messages.push(Message::Analysis {

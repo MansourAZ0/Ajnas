@@ -13,8 +13,10 @@ import type {
   Snapshot,
   Target,
   TonicOption,
+  ScaleInfo,
 } from "./lib/types";
 import { Resonance } from "./components/Resonance";
+import { MaqamControls, MaqamScale } from "./components/MaqamScale";
 import { Fingerboard } from "./components/Fingerboard";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { CameraPanel } from "./components/CameraPanel";
@@ -53,6 +55,9 @@ export default function App() {
   const [tonicOptions, setTonicOptions] = useState<TonicOption[]>([]);
   const [maqamId, setMaqamId] = useState("");
   const [tonic, setTonic] = useState("");
+  const [tonicOctave, setTonicOctave] = useState(3);
+  const [variantId, setVariantId] = useState("");
+  const [catalogue, setCatalogue] = useState<ScaleInfo[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [clock, setClock] = useState(0);
   const tone = useRef<AudioContext | null>(null);
@@ -112,9 +117,18 @@ export default function App() {
       .catch((e) => {
         if (alive) setError(errorText(e));
       });
+    invoke<ScaleInfo[]>("maqam_catalogue")
+      .then((c) => {
+        if (alive) setCatalogue(c);
+      })
+      .catch((e) => {
+        if (alive) setError(errorText(e));
+      });
     invoke<Board>("fingerboard", {
       maqamId: maqamId || null,
-      tonic: tonic.trim() || null,
+      tonic: tonic ? JSON.parse(tonic) : null,
+      tonicOctave,
+      variantId: variantId || null,
     })
       .then((b) => {
         if (alive) setBoard(b);
@@ -128,7 +142,7 @@ export default function App() {
     return () => {
       alive = false;
     };
-  }, [settings, dataset, maqamId, tonic, ar]);
+  }, [settings, dataset, maqamId, tonic, tonicOctave, variantId, ar]);
   useEffect(() => {
     if (!running || !settings?.showDiagnostics) return;
     const id = setInterval(
@@ -235,6 +249,23 @@ export default function App() {
         setSelectedId(null);
         setAnalysis(null);
       }
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function loadReference() {
+    setBusy(true);
+    setError(null);
+    try {
+      const ds = await invoke<Dataset>("load_reference_dataset");
+      setDataset(ds);
+      setMaqamId("");
+      setVariantId("");
+      setTonic("");
+      setSelectedId(null);
+      setAnalysis(null);
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -386,6 +417,18 @@ export default function App() {
                   {tr("Score", "النتيجة")} {c.score.toFixed(2)}
                 </bdi>
               </div>
+              <p className="fine-print">
+                {c.variant
+                  ? dataset.maqamat
+                      .find((m) => m.id === c.maqam)
+                      ?.variants?.find((v) => v.id === c.variant)?.name[
+                      ar ? "arabic" : "latin"
+                    ]
+                  : tr(
+                      "Primary source illustration",
+                      "الصورة الأساسية في المصدر",
+                    )}
+              </p>
               <div className="evidence">
                 {c.supporting.map((e, i) => (
                   <span key={i}>
@@ -402,8 +445,8 @@ export default function App() {
               {c.contradicting.length > 0 && (
                 <p className="warning-text">
                   {tr(
-                    "Contradiction: foreign notes",
-                    "تعارض: نغمات خارج السلم",
+                    "Outside the selected illustration",
+                    "خارج الصورة النغمية المختارة",
                   )}{" "}
                   {((c.contradicting[0].share ?? 0) * 100).toFixed(0)}%
                 </p>
@@ -472,7 +515,7 @@ export default function App() {
           <p>
             {tr("Local analysis · No recordings", "تحليل محلي · دون تسجيل")}
           </p>
-          <span className="version">AJNAS / 0.1</span>
+          <span className="version">AJNAS / 0.2</span>
         </div>
       </aside>
       <main className="workspace">
@@ -691,49 +734,48 @@ export default function App() {
         )}
         {page === "teach" && (
           <>
-            <div className="panel teaching-controls">
-              <label className="field">
-                {tr("Practice material", "مادة التدريب")}
-                <select
-                  value={maqamId}
-                  onChange={(e) => {
-                    setMaqamId(e.target.value);
-                    setSelectedId(null);
-                  }}
-                >
-                  <option value="">
-                    {tr(
-                      "All notes · current tuning grid",
-                      "جميع النغمات · نظام الدوزان الحالي",
-                    )}
-                  </option>
-                  {dataset?.maqamat.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name[ar ? "arabic" : "latin"]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                {tr("Tonic override · e.g. Re3", "قرار مخصص · مثل Re3")}
-                <input
-                  dir="ltr"
-                  placeholder={tr("Dataset default", "القرار الافتراضي")}
-                  value={tonic}
-                  onChange={(e) => {
-                    setTonic(e.target.value);
-                    setSelectedId(null);
-                  }}
-                  disabled={!maqamId}
-                />
-              </label>
-              <span className="muted">
-                {tr(
-                  "Choose a note on the fingerboard. All positions use player notation.",
-                  "اختر نغمة على لوحة الأصابع. جميع المواضع بأسماء العازف.",
-                )}
-              </span>
-            </div>
+            <MaqamControls
+              dataset={dataset}
+              maqamId={maqamId}
+              variantId={variantId}
+              tonic={tonic}
+              octave={tonicOctave}
+              tonics={tonicOptions}
+              arabic={!!ar}
+              busy={busy}
+              onMaqam={(id) => {
+                setMaqamId(id);
+                setVariantId("");
+                setTonic("");
+                setTonicOctave(3);
+                setSelectedId(null);
+              }}
+              onVariant={(id) => {
+                setVariantId(id);
+                setSelectedId(null);
+              }}
+              onTonic={(id) => {
+                setTonic(id);
+                setSelectedId(null);
+              }}
+              onOctave={(n) => {
+                setTonicOctave(n);
+                setSelectedId(null);
+              }}
+              onRecognition={() => {
+                if (settings && maqam)
+                  void save({
+                    ...settings,
+                    maqam: {
+                      ...settings.maqam,
+                      tonic: tonic ? JSON.parse(tonic) : maqam.tonic,
+                    },
+                  });
+              }}
+            />
+            {board?.scale && settings && (
+              <MaqamScale scale={board.scale} settings={settings} />
+            )}
             {board && settings && (
               <section className="panel">
                 <div className="section-heading">
@@ -831,6 +873,16 @@ export default function App() {
               <div className="section-heading">
                 <h2>{tr("Your musical library", "مكتبتك الموسيقية")}</h2>
                 <div className="inline">
+                  <button
+                    disabled={busy || !settings}
+                    className="button primary"
+                    onClick={loadReference}
+                  >
+                    {tr(
+                      "Load researched eight",
+                      "تحميل المقامات الثمانية الموثّقة المصادر",
+                    )}
+                  </button>
                   <button
                     disabled={busy || !settings}
                     className="button subtle"
@@ -972,6 +1024,19 @@ export default function App() {
                         "معرّف في ملف البيانات المحمّل.",
                       )}
                   </p>
+                  <div className="reference-notes">
+                    {catalogue
+                      .find((s) => s.maqamId === m.id)
+                      ?.notes.map((n) => (
+                        <span key={n.step}>{n.label.text}</span>
+                      ))}
+                  </div>
+                  <p className="fine-print">
+                    {tr("Reference tonic", "القرار المرجعي")}:{" "}
+                    {catalogue.find((s) => s.maqamId === m.id)?.tonic.text} ·{" "}
+                    {(m.variants?.length ?? 0) + 1}{" "}
+                    {tr("illustrated routes", "مسارات موضحة")}
+                  </p>
                   <div className="intervals" dir="ltr">
                     {m.ascending.map((d, i) => (
                       <span key={i}>
@@ -994,6 +1059,9 @@ export default function App() {
                     className="button subtle"
                     onClick={() => {
                       setMaqamId(m.id);
+                      setVariantId("");
+                      setTonic("");
+                      setTonicOctave(3);
                       setSelectedId(null);
                       setPage("teach");
                     }}

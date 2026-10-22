@@ -68,6 +68,8 @@ export interface Analysis {
   candidates: {
     maqam: string;
     tonic: { degree: Degree; accidental: number };
+    variant?: string | null;
+    tonicOctave?: number | null;
     score: number;
     supporting: Evidence[];
     contradicting: Evidence[];
@@ -105,6 +107,7 @@ export interface Fingerboard {
   fingerboardLengthMm: number;
   courses: NoteLabel[];
   targets: Target[];
+  scale: ScaleInfo | null;
 }
 export interface Name {
   arabic: string;
@@ -121,6 +124,15 @@ export interface Maqam {
   family?: string;
   tonic: { degree: Degree; accidental: number };
   ascending: ScaleDegree[];
+  octaveRepeating?: boolean;
+  variants?: {
+    id: string;
+    name: Name;
+    ascending: ScaleDegree[];
+    description?: string;
+    sources?: string[];
+  }[];
+  sources?: string[];
   descending?: ScaleDegree[];
   ajnas: { jins: string; onStep: number; role: string }[];
   restingSteps: number[];
@@ -162,4 +174,18 @@ export interface AudioStatus {
   };
   stats: Record<string, number>;
   simulation: boolean;
+}
+
+export interface ScaleInfo {
+  maqamId: string;
+  tonic: NoteLabel;
+  octaveRepeating: boolean;
+  notes: { label: NoteLabel; cents: number; step: number }[];
+  ajnas: {
+    name: Name;
+    onStep: number;
+    tonicStep: number;
+    notes: NoteLabel[];
+  }[];
+  sources: string[];
 }

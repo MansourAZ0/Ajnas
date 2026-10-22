@@ -1186,3 +1186,94 @@ footer i {
     animation: none !important;
   }
 }
+/* Source-derived maqam charts */
+.scale-notes {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 20px 0;
+}
+.scale-degree {
+  min-width: 83px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #ffffff03;
+}
+.scale-degree > small {
+  font-size: 9px;
+  color: var(--muted);
+}
+.scale-degree > .note-name {
+  font-size: 27px;
+  color: var(--gold);
+}
+.scale-degree > bdi {
+  font-size: 10px;
+  color: var(--muted);
+}
+.scale-tonic {
+  color: var(--gold);
+  font-size: 24px;
+}
+.jins-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 15px;
+  margin-top: 25px;
+}
+.jins-grid > div {
+  border-inline-start: 2px solid #76bdb263;
+  padding-inline-start: 15px;
+}
+.jins-grid strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.jins-grid small {
+  display: block;
+  font-size: 9px;
+  color: var(--muted);
+  margin: 9px 0;
+}
+.jins-notes {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 20px;
+  color: #c8c4a6;
+}
+.source-links {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 24px;
+}
+.source-links a {
+  color: var(--gold);
+  margin-inline-start: 8px;
+}
+.reference-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  color: #d5c296;
+  margin: 15px 0;
+  font-size: 13px;
+}
+.reference-notes span {
+  padding: 6px;
+  background: #ffffff04;
+  border-radius: 4px;
+}
+.teaching-controls .octave-field {
+  min-width: 95px;
+  max-width: 140px;
+}
+.teaching-controls .button {
+  align-self: end;
+}

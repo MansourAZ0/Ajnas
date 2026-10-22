@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "ajnas"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "naghma-audio",
  "naghma-core",
@@ -1933,8 +1933,8 @@ dependencies = [
 
 [[package]]
 name = "naghma-audio"
-version = "0.3.1"
-source = "git+https://github.com/MansourAZ0/naghma-core?tag=v0.3.1#1dca1d4a5312d5da21556c61928a2589df0a9d8f"
+version = "0.4.0"
+source = "git+https://github.com/MansourAZ0/naghma-core?tag=v0.4.0#a33a0f7d5fd63baa2388ad8da7ea4f4dbfe6d26a"
 dependencies = [
  "cpal",
  "naghma-core",
@@ -1945,8 +1945,8 @@ dependencies = [
 
 [[package]]
 name = "naghma-core"
-version = "0.3.1"
-source = "git+https://github.com/MansourAZ0/naghma-core?tag=v0.3.1#1dca1d4a5312d5da21556c61928a2589df0a9d8f"
+version = "0.4.0"
+source = "git+https://github.com/MansourAZ0/naghma-core?tag=v0.4.0#a33a0f7d5fd63baa2388ad8da7ea4f4dbfe6d26a"
 dependencies = [
  "serde",
  "serde_json",

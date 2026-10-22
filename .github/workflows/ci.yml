@@ -13,7 +13,7 @@ jobs:
       - name: Fetch shared UI at its release tag
         env:
           DEPS_TOKEN: ${{ secrets.DEPS_TOKEN || github.token }}
-        run: git clone --depth 1 --branch v0.3.1 "https://x-access-token:${DEPS_TOKEN}@github.com/MansourAZ0/naghma-core" ../naghma-core
+        run: git clone --depth 1 --branch v0.4.0 "https://x-access-token:${DEPS_TOKEN}@github.com/MansourAZ0/naghma-core" ../naghma-core
       - uses: actions/setup-node@v4
         with:
           node-version: 24

@@ -164,15 +164,32 @@ async fn list_input_devices() -> Result<Vec<naghma_audio::capture::InputDevice>,
 fn fingerboard(
     state: State<'_, AppState>,
     maqam_id: Option<String>,
-    tonic: Option<String>,
+    tonic: Option<naghma_core::tuning::NoteSpelling>,
+    tonic_octave: Option<i8>,
+    variant_id: Option<String>,
 ) -> Result<teach::Fingerboard, String> {
     let p = state.processor.lock().unwrap();
     teach::fingerboard(
         &p.settings,
         p.dataset.as_deref(),
         maqam_id.as_deref(),
-        tonic.as_deref(),
+        tonic,
+        tonic_octave.unwrap_or(3),
+        variant_id.as_deref(),
     )
+}
+
+#[tauri::command]
+fn maqam_catalogue(state: State<'_, AppState>) -> Result<Vec<teach::ScaleInfo>, String> {
+    let p = state.processor.lock().unwrap();
+    let Some(dataset) = p.dataset.as_deref() else {
+        return Ok(Vec::new());
+    };
+    dataset
+        .maqamat
+        .iter()
+        .map(|m| teach::scale_info(&p.settings, dataset, m, m.default_tonic(3), None))
+        .collect()
 }
 
 #[derive(Serialize)]
@@ -234,19 +251,35 @@ async fn import_dataset(app: tauri::AppHandle) -> Result<Option<Arc<MaqamDataset
         let path = file.into_path().map_err(|e| e.to_string())?;
         let dataset = Arc::new(read_dataset(&path)?);
         let state = app.state::<AppState>();
-        let _rt = state.runtime.lock().unwrap();
-        let tmp = state.dataset_path.with_extension("json.tmp");
-        std::fs::create_dir_all(state.dataset_path.parent().unwrap()).map_err(|e| e.to_string())?;
-        std::fs::write(
-            &tmp,
-            serde_json::to_vec_pretty(&*dataset).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
-        std::fs::rename(tmp, &state.dataset_path).map_err(|e| e.to_string())?;
-        let mut p = state.processor.lock().unwrap();
-        p.dataset = Some(dataset.clone());
-        p.reset();
+        install_dataset(&state, dataset.clone())?;
         Ok(Some(dataset))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn install_dataset(state: &AppState, dataset: Arc<MaqamDataset>) -> Result<(), String> {
+    let _rt = state.runtime.lock().unwrap();
+    let tmp = state.dataset_path.with_extension("json.tmp");
+    std::fs::create_dir_all(state.dataset_path.parent().unwrap()).map_err(|e| e.to_string())?;
+    std::fs::write(
+        &tmp,
+        serde_json::to_vec_pretty(&*dataset).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    std::fs::rename(tmp, &state.dataset_path).map_err(|e| e.to_string())?;
+    let mut p = state.processor.lock().unwrap();
+    p.dataset = Some(dataset);
+    p.reset();
+    Ok(())
+}
+
+#[tauri::command]
+async fn load_reference_dataset(app: tauri::AppHandle) -> Result<Arc<MaqamDataset>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dataset = Arc::new(MaqamDataset::teaching_eight_24edo());
+        install_dataset(&app.state::<AppState>(), dataset.clone())?;
+        Ok(dataset)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -314,8 +347,10 @@ pub fn run() {
             audio_status,
             list_input_devices,
             fingerboard,
+            maqam_catalogue,
             tonic_options,
             import_dataset,
+            load_reference_dataset,
             clear_dataset
         ])
         .on_window_event(|window, event| {
