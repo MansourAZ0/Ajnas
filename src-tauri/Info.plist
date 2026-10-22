@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>NSMicrophoneUsageDescription</key><string>Ajnas listens to your oud to analyse pitch locally. Audio is never recorded or uploaded.</string>
+<key>NSCameraUsageDescription</key><string>Ajnas uses your camera, when enabled, to locate your fretting hand. Video stays on this computer.</string>
+</dict></plist>
