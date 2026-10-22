@@ -1,7 +1,111 @@
-# Tauri + React + Typescript
+# Ajnas · أجناس
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+A local-first desktop companion for oud practice. Tauri 2, Rust, React and
+TypeScript; audio analysis uses our own YIN implementation through the shared
+libraries. This is an incremental 0.1 application, not a finished music tutor.
 
-## Recommended IDE Setup
+## Working features
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+- Native microphone analysis and an explicitly labelled synthetic simulation.
+- Continuous frequency, quarter-tone solfège, cents, periodicity confidence,
+  a melodic trail and acoustic-reactive Canvas graphics.
+- Separate player and sounding names, transposition in four interval units,
+  reference pitch, 12-/24-EDO naming, Latin/Arabic note scripts and RTL interface.
+- Interactive fretless fingerboard, all reachable positions for each note,
+  selected-target intonation comparison and an electronic reference tone.
+- Configurable vibrating length, nut-to-fingerboard-end length and position
+  correction. The six-course tuning is the example Do2–Fa2–La2–Re3–Sol3–Do4.
+- Local import, schema validation and persistence of user-provided maqam JSON.
+  Dataset provenance is visible, including synthetic/unvalidated warnings.
+- Opt-in rolling maqam hypotheses with supporting and contradicting evidence.
+  These are heuristic scores, not probabilities or authoritative identifications.
+- Optional local MediaPipe hand tracking in a worker, camera selection, manual
+  perspective calibration and conservative audio/position consistency checks.
+  Vision never changes the acoustic note or claims verified string contact.
+
+Microphone and camera stay off until started. No audio/video is recorded or
+uploaded. Packaged inference uses local model and WASM assets; there is no runtime
+CDN dependency. Camera calibration and settings are stored locally.
+
+## Independent repositories
+
+| Repository | Responsibility |
+| --- | --- |
+| [pitchforge-rs](https://github.com/MansourAZ0/pitchforge-rs) | Framework-free pitch DSP |
+| [naghma-core](https://github.com/MansourAZ0/naghma-core) | Theory, instrument geometry, audio engine and shared UI |
+| [watar-tuner](https://github.com/MansourAZ0/watar-tuner) | Standalone tuner product |
+| Ajnas | Companion orchestration, teaching, camera and fusion |
+
+Ajnas consumes `naghma-core` / `naghma-audio` at **v0.3.1**, and transitively
+`pitchforge` at **v0.1.0**, pinned by Cargo.lock. It does not copy tuner source.
+The shared React package is a file dependency on a sibling checkout; CI checks
+that sibling out at **v0.3.1**. There is no cross-repository Cargo workspace.
+
+## Run
+
+Requirements: Rust 1.90+, Node 24+, the [Tauri system prerequisites](https://v2.tauri.app/start/prerequisites/),
+and access to the private dependency repositories. On Linux install ALSA headers
+in addition to Tauri's dependencies. Clone `naghma-core` next to `Ajnas` and use its
+`v0.3.1` tag for a reproducible UI build.
+
+```sh
+npm ci
+npm run tauri dev
+```
+
+`predev` and `prebuild` prepare pinned MediaPipe assets. The first preparation
+requires a build-time model download; its SHA-256 is verified. Later builds can
+reuse the verified model offline. See [docs/VISION.md](docs/VISION.md).
+
+```sh
+npm run typecheck
+npm test
+npm run build
+node scripts/prepare-vision.mjs --check
+cargo fmt --manifest-path src-tauri/Cargo.toml --check
+cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings
+cargo test --manifest-path src-tauri/Cargo.toml --locked
+npm run tauri build -- --bundles app
+```
+
+On macOS the app bundle includes microphone/camera usage descriptions and capture
+entitlements. On Windows build the normal Tauri targets on Windows (override
+`bundle.targets` as needed). Windows support is not yet validated.
+
+For private GitHub dependencies, set a repository Actions secret `DEPS_TOKEN`
+with read access to `naghma-core` and `pitchforge-rs`. The default Actions token
+cannot read other private repositories. CI includes frontend checks and Rust
+checks on macOS and Linux; local passes do not imply remote CI has passed.
+
+## Practice
+
+1. Select Microphone and Start listening, or choose Synthetic simulation to
+   check the pipeline without hardware. Simulation is always visibly labelled.
+2. Set transposition to match your instrument. Measured Hz stays unchanged;
+   player notation moves relative to concert pitch.
+3. Open Teach Me and choose a note on the fingerboard. The map always uses player
+   notation. Reference tones and selected-target cents retain the original target
+   pitch, including non-equal-tempered intervals in a loaded maqam dataset.
+4. Import your own sourced JSON definitions in Maqam Explorer. No real or
+   invented maqam definitions are included in the app. The synthetic fixture under
+   `src-tauri/tests/fixtures` is only for tests and is not loaded automatically.
+5. Before camera calibration, measure the instrument dimensions in Settings.
+   Mark outer **course centerlines** at nut and fingerboard end in the on-screen
+   order. Keep the oud and camera stationary, and recalibrate when either moves.
+
+The dataset schema and validation rules are documented in
+[naghma-core's maqam module](https://github.com/MansourAZ0/naghma-core/tree/v0.3.1/crates/naghma-core/src/maqam).
+Import is limited to 2 MiB and uses a native file picker. Invalid imports leave
+the current dataset intact.
+
+## Current limits
+
+See [docs/PROGRESS.md](docs/PROGRESS.md) for measured validation and remaining
+work. In particular, real oud recordings, physical camera/mic permission flows,
+packaged WKWebView/WebView2 inference, field latency and intonation accuracy still
+need validation. Camera projection assumes even course spacing and stationary
+geometry. Sustained ongoing notes enter maqam history when completed. The current
+UI uses one example tuning; arbitrary tuning-profile editing and full structured
+lessons remain future work.
+
+Licensed under MIT OR Apache-2.0. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
