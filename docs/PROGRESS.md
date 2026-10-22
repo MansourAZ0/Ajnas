@@ -10,8 +10,8 @@ camera tracking/calibration/fusion. No Watar application source was copied.
 
 ### Automated validation
 
-- 7 Rust tests: settings/defaults, fractional dataset targets, transposition
-  preserving positions, both pitch identities and opt-in analysis.
+- 9 Rust tests: settings/defaults, fractional dataset targets, transposition
+  preserving positions, both pitch identities, opt-in analysis, sourced transpositions and bounded Saba.
 - 20 frontend tests: continuous target coaching, stale/held/low-confidence rejection,
   bounded session history, perspective projection, calibration storage/validation,
   fusion freshness/ambiguity/conflict and camera lifecycle races.
@@ -26,10 +26,30 @@ camera tracking/calibration/fusion. No Watar application source was copied.
 - Independent review found and fixed missing normal note endings in analysis,
   settings failure reconciliation, provenance/tonic display and calibrated
   geometry; the shared geometry correction is naghma-core v0.3.1.
-- naghma-core v0.3.1: 62 core tests plus one documentation test and clean Clippy.
+- naghma-core v0.4.0: 62 existing core tests, 7 sourced-maqam integration tests,
+  one documentation test and clean Clippy.
 
 See VISION.md for the exact camera checks and limits. Synthetic musical fixtures
 are not authoritative theory and are not bundled as selectable definitions.
+
+### 0.2 sourced maqam integration
+
+Opt-in researched eight-maqam illustrations now support all 24 tonic classes,
+source-labelled upper-jins alternatives, full spelled-note charts, separate jins
+placement/tonal-centre degrees and register-bounded Saba targets. Recognition
+ranks alternatives separately and reports the winning route; Saba includes an
+inferred tonic octave. See MAQAMAT.md and the core research record.
+
+The packaged macOS 0.2 debug app was opened and verified through its native UI:
+loading all eight sourced definitions, Bayati on La with the Rast route and
+Fa half-sharp, updated jins notes, and Saba’s lowered eighth/upper natural third
+with its register-specific warning. Microphone and camera remained off.
+
+The source notation was visually checked and Bayati transpositions were cross-
+checked against Sami Asmar. Numeric targets are written-note 24-EDO approximations,
+not measured performance intonation. No real recordings were supplied for this
+iteration, so structural and generated-melody tests do not establish real-world
+recognition or teaching accuracy.
 
 ### Required before a public release
 
@@ -42,8 +62,9 @@ are not authoritative theory and are not bundled as selectable definitions.
   substitute for these measurements.
 - Evaluate calibration accuracy against measured finger positions, occlusion,
   course spacing and movement. Contact/active finger is not resolved today.
-- Supply musician-reviewed maqam/jins datasets with provenance, then validate
-  recognition on labelled real performances; scores are currently uncalibrated.
+- Have a musician review the sourced provisional maqam/jins illustrations and
+  intonation targets, then validate recognition on labelled real performances;
+  scores are currently uncalibrated.
 - Add tuning-profile import/editing, lesson progression and custom intonation
   profile selection. Dataset teaching already preserves custom target cents.
 - Complete MPM comparison, Windows validation, accessibility review, signing,
