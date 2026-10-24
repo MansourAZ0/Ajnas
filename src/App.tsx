@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Channel, invoke, isTauri } from "@tauri-apps/api/core";
-import { CentsMeter, NoteName, useLive } from "@naghma/ui";
-import { PerformanceStore, coaching } from "./lib/live";
+import { PerformanceStore } from "./lib/live";
+import { recordAnalysis, type MaqamSighting } from "./lib/maqamLog";
 import type {
   Analysis,
   AudioStatus,
@@ -17,19 +24,29 @@ import type {
 } from "./lib/types";
 import { Resonance } from "./components/Resonance";
 import { MaqamControls, MaqamScale } from "./components/MaqamScale";
-import { Fingerboard } from "./components/Fingerboard";
 import { SettingsPanel } from "./components/SettingsPanel";
-import { CameraPanel } from "./components/CameraPanel";
+import { CameraHud } from "./components/CameraHud";
+import {
+  CameraStage,
+  Diagnostics,
+  LiveFingerboard,
+  LivePitch,
+  MelodicTrail,
+  PracticeCoach,
+} from "./components/LivePanels";
+import {
+  DatasetSource,
+  MaqamHypotheses,
+  MaqamLibrary,
+} from "./components/MaqamPanels";
 import "./App.css";
 
-type Page = "live" | "tuner" | "teach" | "explorer" | "camera" | "settings";
-const pages: { id: Page; icon: string; en: string; ar: string }[] = [
-  { id: "live", icon: "◉", en: "Live Play", ar: "العزف المباشر" },
+type Tab = "tuner" | "maqam" | "teach" | "library";
+const tabs: { id: Tab; icon: string; en: string; ar: string }[] = [
   { id: "tuner", icon: "≋", en: "Tuner", ar: "الدوزان" },
+  { id: "maqam", icon: "◈", en: "Maqam", ar: "المقام" },
   { id: "teach", icon: "⌘", en: "Teach Me", ar: "علّمني" },
-  { id: "explorer", icon: "◈", en: "Maqam Explorer", ar: "مستكشف المقامات" },
-  { id: "camera", icon: "⌑", en: "Camera & position", ar: "الكاميرا والمواضع" },
-  { id: "settings", icon: "⚙", en: "Settings", ar: "الإعدادات" },
+  { id: "library", icon: "▤", en: "Library", ar: "المكتبة" },
 ];
 function errorText(error: unknown): string {
   return typeof error === "string"
@@ -39,13 +56,19 @@ function errorText(error: unknown): string {
       : JSON.stringify(error);
 }
 
+/**
+ * One camera-centred practice page. App holds session and teaching state
+ * only; everything that moves at frame rate subscribes to the store itself
+ * (see LivePanels and CameraHud), so App renders on user actions and on the
+ * occasional maqam analysis, not on audio frames.
+ */
 export default function App() {
   const store = useMemo(() => new PerformanceStore(), []);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [board, setBoard] = useState<Board | null>(null);
-  const [page, setPage] = useState<Page>("live");
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [maqamLog, setMaqamLog] = useState<MaqamSighting[]>([]);
   const [running, setRunning] = useState(false);
   const [simulation, setSimulation] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -59,20 +82,19 @@ export default function App() {
   const [variantId, setVariantId] = useState("");
   const [catalogue, setCatalogue] = useState<ScaleInfo[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [clock, setClock] = useState(0);
+  const [tab, setTab] = useState<Tab>("tuner");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const boardSection = useRef<HTMLElement>(null);
   const tone = useRef<AudioContext | null>(null);
   const generation = useRef(0);
   const ar = settings?.language === "ar";
-  const tr = (en: string, arabic: string) => (ar ? arabic : en);
-  const frame = useLive(store, (f) => f, Object.is, 12);
-  const selected = board?.targets.find((t) => t.id === selectedId) ?? null;
-  const fresh = clock - store.receivedAt < 500;
-  const note = running && fresh ? frame?.note : null;
-  const coach = coaching(
-    running ? frame : null,
-    selected,
-    store.receivedAt,
-    clock,
+  const tr = useCallback(
+    (en: string, arabic: string) => (ar ? arabic : en),
+    [ar],
+  );
+  const selected = useMemo(
+    () => board?.targets.find((t) => t.id === selectedId) ?? null,
+    [board, selectedId],
   );
   const maqam = dataset?.maqamat.find((m) => m.id === maqamId);
 
@@ -100,10 +122,6 @@ export default function App() {
       generation.current++;
       tone.current?.close();
     };
-  }, []);
-  useEffect(() => {
-    const id = setInterval(() => setClock(performance.now()), 100);
-    return () => clearInterval(id);
   }, []);
   useEffect(() => {
     if (!settings) return;
@@ -155,19 +173,29 @@ export default function App() {
     return () => clearInterval(id);
   }, [running, settings?.showDiagnostics]);
 
+  /** Forget hypotheses and the 30-second maqam log (new context or stop). */
+  const clearAnalysis = useCallback(() => {
+    setAnalysis(null);
+    setMaqamLog([]);
+  }, []);
+
   async function start() {
     setBusy(true);
     setError(null);
-    setAnalysis(null);
+    clearAnalysis();
     store.reset();
     const token = ++generation.current;
     const channel = new Channel<Message>();
     channel.onmessage = (message) => {
       if (generation.current !== token) return;
       if (message.type === "frame") store.push(message);
-      else if (message.type === "analysis")
+      else if (message.type === "analysis") {
+        const at = performance.now();
         setAnalysis({ ...message.analysis, tonicLabels: message.tonicLabels });
-      else {
+        setMaqamLog((log) =>
+          recordAnalysis(log, message.analysis, message.tonicLabels, at),
+        );
+      } else {
         setError(message.message);
         setBusy(true);
         void invoke("stop_audio")
@@ -176,6 +204,7 @@ export default function App() {
               setRunning(false);
               store.reset();
               setStatus(null);
+              clearAnalysis();
             }
           })
           .catch((e) => setError(message.message + " · " + errorText(e)))
@@ -199,7 +228,7 @@ export default function App() {
       await invoke("stop_audio");
       setRunning(false);
       store.reset();
-      setAnalysis(null);
+      clearAnalysis();
       setStatus(null);
     } catch (e) {
       setError(errorText(e));
@@ -207,38 +236,46 @@ export default function App() {
       setBusy(false);
     }
   }
-  async function save(next: Settings) {
-    setBusy(true);
-    setError(null);
-    try {
-      const saved = await invoke<Settings>("update_settings", {
-        settings: next,
-      });
-      setSettings(saved);
-      store.reset();
-      setAnalysis(null);
-    } catch (e) {
-      setError(errorText(e));
-      const [s, a] = await Promise.all([
-        invoke<Snapshot>("snapshot").catch(() => null),
-        invoke<AudioStatus | null>("audio_status").catch(() => undefined),
-      ]);
-      if (s) setSettings(s.settings);
-      setAnalysis(null);
-      if (a !== undefined) {
-        setRunning(a !== null);
-        if (!a) store.reset();
+  const save = useCallback(
+    async (next: Settings) => {
+      setBusy(true);
+      setError(null);
+      try {
+        const saved = await invoke<Settings>("update_settings", {
+          settings: next,
+        });
+        setSettings(saved);
+        store.reset();
+        clearAnalysis();
+      } catch (e) {
+        setError(errorText(e));
+        const [s, a] = await Promise.all([
+          invoke<Snapshot>("snapshot").catch(() => null),
+          invoke<AudioStatus | null>("audio_status").catch(() => undefined),
+        ]);
+        if (s) setSettings(s.settings);
+        clearAnalysis();
+        if (a !== undefined) {
+          setRunning(a !== null);
+          if (!a) store.reset();
+        }
+      } finally {
+        setBusy(false);
       }
-    } finally {
-      setBusy(false);
-    }
-  }
+    },
+    [store, clearAnalysis],
+  );
   const refreshDevices = useCallback(() => {
     invoke<Device[]>("list_input_devices")
       .then(setDevices)
       .catch((e) => setError(errorText(e)));
   }, []);
-  async function loadDataset() {
+  const openSettings = useCallback(() => {
+    setSettingsOpen(true);
+    refreshDevices();
+  }, [refreshDevices]);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  const loadDataset = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
@@ -247,15 +284,15 @@ export default function App() {
         setDataset(ds);
         setMaqamId("");
         setSelectedId(null);
-        setAnalysis(null);
+        clearAnalysis();
       }
     } catch (e) {
       setError(errorText(e));
     } finally {
       setBusy(false);
     }
-  }
-  async function loadReference() {
+  }, [clearAnalysis]);
+  const loadReference = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
@@ -265,28 +302,28 @@ export default function App() {
       setVariantId("");
       setTonic("");
       setSelectedId(null);
-      setAnalysis(null);
+      clearAnalysis();
     } catch (e) {
       setError(errorText(e));
     } finally {
       setBusy(false);
     }
-  }
-  async function clearDataset() {
+  }, [clearAnalysis]);
+  const clearDataset = useCallback(async () => {
     setBusy(true);
     try {
       await invoke("clear_dataset");
       setDataset(null);
       setMaqamId("");
       setSelectedId(null);
-      setAnalysis(null);
+      clearAnalysis();
     } catch (e) {
       setError(errorText(e));
     } finally {
       setBusy(false);
     }
-  }
-  async function reference(target: Target) {
+  }, [clearAnalysis]);
+  const reference = useCallback(async (target: Target) => {
     try {
       tone.current ??= new AudioContext();
       await tone.current.resume();
@@ -308,180 +345,55 @@ export default function App() {
     } catch (e) {
       setError(errorText(e));
     }
-  }
-  const identity =
-    settings?.noteView === "concert"
-      ? tr("CONCERT PITCH", "الصوت الحقيقي")
-      : tr("PLAYER NOTATION", "أسماء العازف");
-  const noteDisplay = (
-    <>
-      <div className="eyebrow">{identity}</div>
-      <div className={`hero-note ${note ? "present" : ""}`}>
-        {note && settings ? (
-          <NoteName label={note.label} style={settings.accidentalStyle} />
-        ) : (
-          <span className="idle-note">—</span>
-        )}
-      </div>
-      <p className="muted">
-        {note ? (
-          <>
-            {tr("Player", "العازف")}: {note.playerLabel.text}{" "}
-            <span className="divider">/</span> {tr("Sounding", "المسموع")}:{" "}
-            {note.soundingLabel.text}
-          </>
-        ) : running ? (
-          tr("Listening for a clear note…", "بانتظار نغمة واضحة…")
-        ) : (
-          tr("A little space. A single note.", "مساحة هادئة. نغمة واحدة.")
-        )}
-      </p>
-    </>
+  }, []);
+  const selectTarget = useCallback((t: Target) => {
+    setSelectedId(t.id);
+    setTab("teach");
+  }, []);
+  const openLibrary = useCallback(() => setTab("library"), []);
+  const explore = useCallback((id: string) => {
+    setMaqamId(id);
+    setVariantId("");
+    setTonic("");
+    setTonicOctave(3);
+    setSelectedId(null);
+    setTab("teach");
+    requestAnimationFrame(() =>
+      boardSection.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      }),
+    );
+  }, []);
+
+  // Stable element: CameraPanel's own re-renders skip the HUD subtree.
+  const hud = useMemo(
+    () =>
+      settings && (
+        <CameraHud
+          store={store}
+          settings={settings}
+          dataset={dataset}
+          running={running}
+          simulation={simulation}
+          maqamLog={maqamLog}
+          target={selected}
+        />
+      ),
+    [store, settings, dataset, running, simulation, maqamLog, selected],
   );
-  const analysisDisplay = (
-    <div className="panel analysis-panel">
-      <div className="section-heading">
-        <h2>{tr("Maqam hypotheses", "احتمالات المقام")}</h2>
-        <span className="tag">
-          {settings?.maqam.enabled
-            ? tr("ENABLED", "مفعّل")
-            : tr("OFF", "متوقف")}
-        </span>
-      </div>
-      {!settings?.maqam.enabled ? (
-        <div className="empty compact">
-          <span className="empty-symbol">◈</span>
-          <h3>
-            {tr("Listen first. Explore when ready.", "اعزف أولاً، ثم استكشف.")}
-          </h3>
-          <p>
-            {tr(
-              "Recognition is optional and uses only the dataset you load.",
-              "التحليل اختياري ويستخدم البيانات التي تحمّلها فقط.",
-            )}
-          </p>
-          <button className="button subtle" onClick={() => setPage("explorer")}>
-            {tr("Open explorer", "افتح المستكشف")} ↗
-          </button>
-        </div>
-      ) : !dataset ? (
-        <p className="muted">
-          {tr(
-            "Load a sourced dataset in Maqam Explorer to rank candidates.",
-            "حمّل بيانات موثّقة في مستكشف المقامات لعرض الاحتمالات.",
-          )}
-        </p>
-      ) : (
-        <>
-          <DatasetSource dataset={dataset} arabic={!!ar} />
-          <p className="fine-print">
-            {settings.maqam.pitchSpace === "player"
-              ? tr("Analysis in player notation", "التحليل بأسماء العازف")
-              : tr("Analysis in sounding pitch", "التحليل بالصوت الحقيقي")}
-          </p>
-          <p className="status-text">
-            {analysis
-              ? tr(
-                  (
-                    {
-                      insufficientData: "More melodic material needed",
-                      unknown: "No clear match",
-                      ambiguous: "Several candidates fit",
-                      likely: "Leading candidate",
-                    } as const
-                  )[analysis.status],
-                  (
-                    {
-                      insufficientData: "نحتاج مادة لحنية أكثر",
-                      unknown: "لا تطابق واضح",
-                      ambiguous: "عدة احتمالات متقاربة",
-                      likely: "الاحتمال الأقوى",
-                    } as const
-                  )[analysis.status],
-                )
-              : tr("Waiting for analysis…", "بانتظار التحليل…")}
-          </p>
-          {analysis?.candidates.map((c, candidateIndex) => (
-            <div className="candidate" key={c.maqam + JSON.stringify(c.tonic)}>
-              <div>
-                <strong>
-                  {dataset.maqamat.find((m) => m.id === c.maqam)?.name[
-                    ar ? "arabic" : "latin"
-                  ] ?? c.maqam}
-                </strong>
-                <span>
-                  {tr("Tonic", "القرار")}:{" "}
-                  {analysis.tonicLabels?.[candidateIndex]?.text ?? "—"}
-                </span>
-                <bdi>
-                  {tr("Score", "النتيجة")} {c.score.toFixed(2)}
-                </bdi>
-              </div>
-              <p className="fine-print">
-                {c.variant
-                  ? dataset.maqamat
-                      .find((m) => m.id === c.maqam)
-                      ?.variants?.find((v) => v.id === c.variant)?.name[
-                      ar ? "arabic" : "latin"
-                    ]
-                  : tr(
-                      "Primary source illustration",
-                      "الصورة الأساسية في المصدر",
-                    )}
-              </p>
-              <div className="evidence">
-                {c.supporting.map((e, i) => (
-                  <span key={i}>
-                    {e.kind === "scaleFit"
-                      ? `${tr("Scale fit", "توافق السلم")} ${((e.share ?? 0) * 100).toFixed(0)}%`
-                      : e.kind === "coverage"
-                        ? `${tr("Degrees heard", "درجات مسموعة")} ${e.heard}/${e.total}`
-                        : e.kind === "jins"
-                          ? `${e.jins}: ${((e.completeness ?? 0) * 100).toFixed(0)}%`
-                          : e.kind}
-                  </span>
-                ))}
-              </div>
-              {c.contradicting.length > 0 && (
-                <p className="warning-text">
-                  {tr(
-                    "Outside the selected illustration",
-                    "خارج الصورة النغمية المختارة",
-                  )}{" "}
-                  {((c.contradicting[0].share ?? 0) * 100).toFixed(0)}%
-                </p>
-              )}
-            </div>
-          ))}
-          {analysis?.possibleModulation && (
-            <p className="warning-text">
-              {tr(
-                "Possible modulation within the analysis window.",
-                "احتمال انتقال مقامي داخل نافذة التحليل.",
-              )}
-            </p>
-          )}
-          <p className="fine-print">
-            {analysis?.notes ?? 0}{" "}
-            {tr(
-              "completed notes · heuristic scores, not probabilities",
-              "نغمات مكتملة · نتائج تقريبية وليست احتمالات إحصائية",
-            )}
-          </p>
-        </>
-      )}
-    </div>
-  );
+  const fingerboardLengthMm = board?.fingerboardLengthMm;
+  const courses = board?.courses.length;
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <header className="topbar">
         <a
           className="brand"
           href="#"
           onClick={(e) => {
             e.preventDefault();
-            setPage("live");
+            window.scrollTo({ top: 0, behavior: "smooth" });
           }}
         >
           <span className="brand-mark">أ</span>
@@ -489,613 +401,312 @@ export default function App() {
             Ajnas<small>أجناس</small>
           </span>
         </a>
-        <div className="nav-caption">
-          {tr("YOUR PRACTICE SPACE", "مساحتك الموسيقية")}
+        <div className="topbar-caption">
+          <span className="eyebrow">
+            {tr("YOUR OUD COMPANION", "رفيقك مع العود")}
+          </span>
+          <span className={`session-state ${running ? "on" : ""}`}>
+            <i />
+            {running
+              ? tr("LIVE", "مباشر")
+              : tr("READY WHEN YOU ARE", "جاهز عندما تكون")}
+          </span>
         </div>
-        <nav>
-          {pages.map((p) => (
-            <button
-              key={p.id}
-              className={`nav-item ${p.id === page ? "active" : ""}`}
-              aria-current={p.id === page ? "page" : undefined}
-              onClick={() => {
-                setPage(p.id);
-                if (p.id === "settings") refreshDevices();
-              }}
-            >
-              <span className="nav-icon">{p.icon}</span>
-              {ar ? p.ar : p.en}
-              {p.id === page && <i />}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <span className="privacy-dot" />
-          {tr("Made for the way you play.", "صُمّم لطريقتك في العزف.")}
-          <p>
-            {tr("Local analysis · No recordings", "تحليل محلي · دون تسجيل")}
-          </p>
-          <span className="version">AJNAS / 0.2</span>
+        <div className="session-controls">
+          <select
+            aria-label={tr("Audio source", "مصدر الصوت")}
+            disabled={running || busy || !settings}
+            value={simulation ? "simulation" : "microphone"}
+            onChange={(e) => setSimulation(e.target.value === "simulation")}
+          >
+            <option value="microphone">{tr("Microphone", "الميكروفون")}</option>
+            <option value="simulation">
+              {tr("Synthetic simulation", "محاكاة اصطناعية")}
+            </option>
+          </select>
+          <button
+            className={`button ${running ? "stop" : "primary"}`}
+            disabled={busy || !settings}
+            onClick={running ? stop : start}
+          >
+            {busy
+              ? tr("Please wait…", "لحظة…")
+              : running
+                ? "■ " + tr("End session", "إنهاء الجلسة")
+                : "● " + tr("Start listening", "ابدأ الاستماع")}
+          </button>
+          <button
+            className="button subtle icon-button"
+            disabled={!settings}
+            aria-haspopup="dialog"
+            aria-expanded={settingsOpen}
+            onClick={openSettings}
+          >
+            <span aria-hidden="true">⚙</span>
+            <span className="label">{tr("Settings", "الإعدادات")}</span>
+          </button>
         </div>
-      </aside>
-      <main className="workspace">
-        <header className="topbar">
-          <div className="breadcrumb">
-            {tr("YOUR OUD COMPANION", "رفيقك مع العود")} <span>/</span>{" "}
-            {pages.find((p) => p.id === page)?.[ar ? "ar" : "en"]}
-          </div>
-          <div className="local-status">
-            <span className="privacy-dot" />
-            {tr("On this device", "على هذا الجهاز")}
-          </div>
-        </header>
-        <div className="page-heading">
-          <div>
-            <div className="eyebrow">
-              {tr("A PRACTICE OF LISTENING", "فنّ الإصغاء")}
+      </header>
+      {(error || (running && simulation)) && (
+        <div className="banners">
+          {error && (
+            <div role="alert" className="error-banner">
+              <span>{error}</span>
+              <button
+                aria-label={tr("Dismiss", "إغلاق")}
+                onClick={() => setError(null)}
+              >
+                ×
+              </button>
             </div>
-            <h1>
-              {page === "live"
-                ? tr("Find your resonance.", "اكتشف رنينك.")
-                : pages.find((p) => p.id === page)?.[ar ? "ar" : "en"]}
-            </h1>
-            <p>
-              {page === "live"
-                ? tr(
-                    "Your sound, made visible. One note at a time.",
-                    "صوتك كما تراه. نغمةً تلو الأخرى.",
-                  )
-                : page === "teach"
-                  ? tr(
-                      "See the possibilities. Let your ear lead the way.",
-                      "شاهد المواضع الممكنة، ودع أذنك تقودك.",
-                    )
-                  : page === "camera"
-                    ? tr(
-                        "A second perspective on where you play.",
-                        "منظور آخر لمواضع عزفك.",
-                      )
-                    : page === "explorer"
-                      ? tr(
-                          "Explore definitions, provenance, and melodic evidence.",
-                          "استكشف التعريفات ومصادرها والأدلة اللحنية.",
-                        )
-                      : page === "settings"
-                        ? tr(
-                            "Tune this space to your instrument.",
-                            "اضبط هذه المساحة لتناسب آلتك.",
-                          )
-                        : tr(
-                            "Listen closely. Make small adjustments.",
-                            "أصغِ بعناية، واضبط برفق.",
-                          )}
-            </p>
-          </div>
-          <div className="session-controls">
-            <select
-              aria-label={tr("Audio source", "مصدر الصوت")}
-              disabled={running || busy || !settings}
-              value={simulation ? "simulation" : "microphone"}
-              onChange={(e) => setSimulation(e.target.value === "simulation")}
-            >
-              <option value="microphone">
-                {tr("Microphone", "الميكروفون")}
-              </option>
-              <option value="simulation">
-                {tr("Synthetic simulation", "محاكاة اصطناعية")}
-              </option>
-            </select>
-            <button
-              className={`button ${running ? "stop" : "primary"}`}
-              disabled={busy || !settings}
-              onClick={running ? stop : start}
-            >
-              {busy
-                ? tr("Please wait…", "لحظة…")
-                : running
-                  ? "■ " + tr("End session", "إنهاء الجلسة")
-                  : "● " + tr("Start listening", "ابدأ الاستماع")}
-            </button>
-          </div>
-        </div>
-        {error && (
-          <div role="alert" className="error-banner">
-            <span>{error}</span>
-            <button
-              aria-label={tr("Dismiss", "إغلاق")}
-              onClick={() => setError(null)}
-            >
-              ×
-            </button>
-          </div>
-        )}
-        {running && simulation && (
-          <div className="simulation-banner">
-            {tr(
-              "SYNTHETIC SIMULATION — generated test tones, not microphone input",
-              "محاكاة اصطناعية — نغمات اختبار وليست صوت الميكروفون",
-            )}
-          </div>
-        )}
-        {(page === "live" || page === "tuner") && (
-          <>
-            <div
-              className={`performance-grid ${page === "tuner" ? "tuner-grid" : ""}`}
-            >
-              {page === "live" && (
-                <section className="panel stage">
-                  <div className="section-heading">
-                    <span className="eyebrow">
-                      {tr("THE LISTENING ROOM", "غرفة الإصغاء")}
-                    </span>
-                    <span className={`session-state ${running ? "on" : ""}`}>
-                      <i />
-                      {running
-                        ? tr("LIVE", "مباشر")
-                        : tr("READY WHEN YOU ARE", "جاهز عندما تكون")}
-                    </span>
-                  </div>
-                  {settings?.visuals !== "off" && (
-                    <Resonance
-                      store={store}
-                      quality={settings?.visuals ?? "reduced"}
-                    />
-                  )}
-                  <div className="stage-bottom">
-                    <div>
-                      <span className="eyebrow">
-                        {tr("INPUT LEVEL", "مستوى الدخل")}
-                      </span>
-                      <div className="level-track">
-                        <i
-                          style={{
-                            width: `${running && fresh ? Math.max(0, Math.min(100, (((frame?.levelDb ?? -90) + 90) / 90) * 100)) : 0}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                    <span className="muted">
-                      {running && fresh ? (
-                        <bdi>{frame?.levelDb.toFixed(0)} dBFS</bdi>
-                      ) : (
-                        tr("The room is quiet.", "المكان هادئ.")
-                      )}
-                    </span>
-                  </div>
-                </section>
+          )}
+          {running && simulation && (
+            <div className="simulation-banner">
+              {tr(
+                "SYNTHETIC SIMULATION — generated test tones, not microphone input",
+                "محاكاة اصطناعية — نغمات اختبار وليست صوت الميكروفون",
               )}
-              <section className="panel pitch-panel">
-                {noteDisplay}
-                <CentsMeter
-                  read={() =>
-                    running && performance.now() - store.receivedAt < 500
-                      ? (store.frame?.note?.cents ?? null)
-                      : null
-                  }
-                  flatLabel={tr("Flat", "منخفض")}
-                  sharpLabel={tr("Sharp", "مرتفع")}
-                />
-                <div
-                  className={`cents-readout ${note && Math.abs(note.cents) < 10 ? "in-tune" : ""}`}
-                >
-                  <bdi>
-                    {note
-                      ? `${note.cents > 0 ? "+" : ""}${note.cents.toFixed(1)}`
-                      : "—"}
-                  </bdi>
-                  <span>{tr("cents", "سنت")}</span>
-                </div>
-                <div className="pitch-facts">
-                  <div>
-                    <small>{tr("FREQUENCY", "التردد")}</small>
-                    <bdi>
-                      {note ? note.hz.toFixed(2) : "—"} <em>Hz</em>
-                    </bdi>
-                  </div>
-                  <div>
-                    <small>{tr("PERIODICITY", "الدورية")}</small>
-                    <bdi>
-                      {note ? ((frame?.confidence ?? 0) * 100).toFixed(0) : "—"}{" "}
-                      <em>%</em>
-                    </bdi>
-                  </div>
-                </div>
-              </section>
             </div>
-            <div className="below-grid">
-              <section className="panel">
-                <div className="section-heading">
-                  <h2>{tr("Your melodic trail", "مسارك اللحني")}</h2>
-                  <span className="eyebrow">
-                    {tr("THIS SESSION", "هذه الجلسة")}
-                  </span>
-                </div>
-                <div className="note-trail">
-                  {store.history.length ? (
-                    store.history.slice(-12).map((n, i) => (
-                      <span key={n.eventId}>
-                        <small>{String(i + 1).padStart(2, "0")}</small>
-                        {n.text}
-                      </span>
-                    ))
-                  ) : (
-                    <p className="muted">
-                      {tr(
-                        "Confirmed notes will leave a trail here.",
-                        "ستظهر النغمات المؤكدة هنا.",
-                      )}
-                    </p>
-                  )}
-                </div>
-              </section>
-              {analysisDisplay}
-            </div>
-          </>
-        )}
-        {page === "teach" && (
-          <>
-            <MaqamControls
-              dataset={dataset}
-              maqamId={maqamId}
-              variantId={variantId}
-              tonic={tonic}
-              octave={tonicOctave}
-              tonics={tonicOptions}
+          )}
+        </div>
+      )}
+      <main className="page">
+        <div className="hero">
+          {fingerboardLengthMm !== undefined && courses !== undefined ? (
+            <CameraStage
+              store={store}
               arabic={!!ar}
-              busy={busy}
-              onMaqam={(id) => {
-                setMaqamId(id);
-                setVariantId("");
-                setTonic("");
-                setTonicOctave(3);
-                setSelectedId(null);
-              }}
-              onVariant={(id) => {
-                setVariantId(id);
-                setSelectedId(null);
-              }}
-              onTonic={(id) => {
-                setTonic(id);
-                setSelectedId(null);
-              }}
-              onOctave={(n) => {
-                setTonicOctave(n);
-                setSelectedId(null);
-              }}
-              onRecognition={() => {
-                if (settings && maqam)
-                  void save({
-                    ...settings,
-                    maqam: {
-                      ...settings.maqam,
-                      tonic: tonic ? JSON.parse(tonic) : maqam.tonic,
-                    },
-                  });
-              }}
+              fingerboardLengthMm={fingerboardLengthMm}
+              courses={courses}
+              overlay={hud}
             />
-            {board?.scale && settings && (
-              <MaqamScale scale={board.scale} settings={settings} />
-            )}
-            {board && settings && (
-              <section className="panel">
-                <div className="section-heading">
+          ) : (
+            <section className="panel camera-placeholder">
+              <span className="empty-symbol">⌑</span>
+              <p className="muted">
+                {settings
+                  ? tr(
+                      "Preparing the fingerboard model for the camera…",
+                      "نجهّز نموذج لوحة الأصابع للكاميرا…",
+                    )
+                  : tr(
+                      "The camera view opens once local settings load.",
+                      "تظهر الكاميرا بعد تحميل الإعدادات المحلية.",
+                    )}
+              </p>
+            </section>
+          )}
+        </div>
+        <aside className="side panel" aria-label={tr("Tools", "الأدوات")}>
+          <div
+            className="tabs"
+            role="tablist"
+            aria-label={tr("Practice tools", "أدوات التمرين")}
+          >
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                role="tab"
+                id={`tab-${t.id}`}
+                aria-selected={t.id === tab}
+                aria-controls="side-panel"
+                className={`tab ${t.id === tab ? "active" : ""}`}
+                onClick={() => setTab(t.id)}
+              >
+                <span className="tab-icon" aria-hidden="true">
+                  {t.icon}
+                </span>
+                {ar ? t.ar : t.en}
+              </button>
+            ))}
+          </div>
+          <div
+            key={tab}
+            className="tab-body"
+            id="side-panel"
+            role="tabpanel"
+            aria-labelledby={`tab-${tab}`}
+          >
+            {!settings ? (
+              <p className="muted">{tr("Loading…", "جارٍ التحميل…")}</p>
+            ) : tab === "tuner" ? (
+              <>
+                <div className="tuner-stage">
+                  {settings.visuals !== "off" && (
+                    <Resonance store={store} quality={settings.visuals} />
+                  )}
+                  <LivePitch
+                    store={store}
+                    settings={settings}
+                    running={running}
+                    tr={tr}
+                  />
+                </div>
+                <MelodicTrail store={store} tr={tr} />
+              </>
+            ) : tab === "maqam" ? (
+              <MaqamHypotheses
+                settings={settings}
+                dataset={dataset}
+                analysis={analysis}
+                arabic={!!ar}
+                tr={tr}
+                onOpenLibrary={openLibrary}
+              />
+            ) : tab === "teach" ? (
+              <>
+                <MaqamControls
+                  dataset={dataset}
+                  maqamId={maqamId}
+                  variantId={variantId}
+                  tonic={tonic}
+                  octave={tonicOctave}
+                  tonics={tonicOptions}
+                  arabic={!!ar}
+                  busy={busy}
+                  onMaqam={(id) => {
+                    setMaqamId(id);
+                    setVariantId("");
+                    setTonic("");
+                    setTonicOctave(3);
+                    setSelectedId(null);
+                  }}
+                  onVariant={(id) => {
+                    setVariantId(id);
+                    setSelectedId(null);
+                  }}
+                  onTonic={(id) => {
+                    setTonic(id);
+                    setSelectedId(null);
+                  }}
+                  onOctave={(n) => {
+                    setTonicOctave(n);
+                    setSelectedId(null);
+                  }}
+                  onRecognition={() => {
+                    if (maqam)
+                      void save({
+                        ...settings,
+                        maqam: {
+                          ...settings.maqam,
+                          tonic: tonic ? JSON.parse(tonic) : maqam.tonic,
+                        },
+                      });
+                  }}
+                />
+                <PracticeCoach
+                  store={store}
+                  settings={settings}
+                  selected={selected}
+                  onReference={reference}
+                  tr={tr}
+                />
+                <section className="map-note">
                   <h2>
-                    {maqam?.name[ar ? "arabic" : "latin"] ??
-                      tr("The fretless fingerboard", "لوحة العود بلا دساتين")}
+                    {tr("A map, guided by your ear.", "خريطة تقودها أذنك.")}
                   </h2>
+                  <p className="muted small">
+                    {tr(
+                      "The oud has no frets. These positions follow an ideal-string model; action, pressure, and the instrument change real intonation. Loaded maqam targets keep their original cents, including intervals between equal-tempered steps.",
+                      "العود بلا دساتين. تعتمد المواضع على نموذج وتر مثالي؛ ويؤثر ضغط الإصبع وارتفاع الأوتار والآلة على النغم الحقيقي. تحتفظ أهداف المقام المحمّلة بمقاديرها الأصلية بالسنت.",
+                    )}
+                  </p>
+                  {dataset && <DatasetSource dataset={dataset} arabic={!!ar} />}
+                </section>
+              </>
+            ) : (
+              <MaqamLibrary
+                settings={settings}
+                dataset={dataset}
+                catalogue={catalogue}
+                tonicOptions={tonicOptions}
+                busy={busy}
+                arabic={!!ar}
+                tr={tr}
+                onLoadReference={loadReference}
+                onImport={loadDataset}
+                onClear={clearDataset}
+                onSave={save}
+                onExplore={explore}
+              />
+            )}
+          </div>
+        </aside>
+        <div className="work">
+          {board && settings && (
+            <section className="panel board-panel" ref={boardSection}>
+              <div className="section-heading">
+                <h2>
+                  {maqam?.name[ar ? "arabic" : "latin"] ??
+                    tr("The fretless fingerboard", "لوحة العود بلا دساتين")}
+                </h2>
+                <div className="inline">
+                  {maqam && (
+                    <button
+                      className="button subtle compact"
+                      onClick={() => setTab("teach")}
+                    >
+                      {tr("Maqam, tonic & route", "المقام والقرار والمسار")}
+                    </button>
+                  )}
                   <span className="tag">
                     {tr("PLAYER NOTATION", "أسماء العازف")}
                   </span>
                 </div>
-                <Fingerboard
-                  board={board}
-                  settings={settings}
-                  selected={selected}
-                  onSelect={(t) => setSelectedId(t.id)}
-                  activePitch={note?.playerPitch}
-                />
-              </section>
-            )}
-            <div className="below-grid">
-              <section className="panel coach">
-                <div className="eyebrow">
-                  {tr("INTONATION PRACTICE", "تدريب الدقة النغمية")}
-                </div>
-                <h2>
-                  {selected && settings ? (
-                    <NoteName
-                      label={selected.label}
-                      style={settings.accidentalStyle}
-                    />
-                  ) : (
-                    tr("Choose your next note.", "اختر نغمتك التالية.")
-                  )}
-                </h2>
-                {selected ? (
-                  <>
-                    <p className="coach-offset">
-                      <bdi>
-                        {coach
-                          ? `${coach.cents > 0 ? "+" : ""}${coach.cents.toFixed(1)}`
-                          : "—"}
-                      </bdi>{" "}
-                      <span>{tr("cents from target", "سنت عن الهدف")}</span>
-                    </p>
-                    <p className="muted">
-                      {coach
-                        ? coach.state === "inTune"
-                          ? tr(
-                              "Settled within ±10 cents.",
-                              "داخل نطاق ±١٠ سنت.",
-                            )
-                          : coach.state === "flat"
-                            ? tr("A little higher.", "ارفع النغمة قليلاً.")
-                            : tr("A little lower.", "اخفض النغمة قليلاً.")
-                        : tr(
-                            "Play the selected note for a live comparison.",
-                            "اعزف النغمة المختارة للمقارنة المباشرة.",
-                          )}
-                    </p>
-                    <button
-                      className="button subtle"
-                      onClick={() => reference(selected)}
-                    >
-                      ♪ {tr("Play reference tone", "شغّل نغمة مرجعية")}
-                    </button>
-                  </>
-                ) : (
-                  <p className="muted">
-                    {tr(
-                      "Select a target to see every reachable position and hear a reference tone.",
-                      "اختر هدفاً لرؤية مواضعه وسماع نغمة مرجعية.",
-                    )}
-                  </p>
-                )}
-              </section>
-              <section className="panel">
-                <h2>
-                  {tr("A map, guided by your ear.", "خريطة تقودها أذنك.")}
-                </h2>
-                <p className="muted">
-                  {tr(
-                    "The oud has no frets. These positions follow an ideal-string model; action, pressure, and the instrument change real intonation. Loaded maqam targets keep their original cents, including intervals between equal-tempered steps.",
-                    "العود بلا دساتين. تعتمد المواضع على نموذج وتر مثالي؛ ويؤثر ضغط الإصبع وارتفاع الأوتار والآلة على النغم الحقيقي. تحتفظ أهداف المقام المحمّلة بمقاديرها الأصلية بالسنت.",
-                  )}
-                </p>
-                {dataset && <DatasetSource dataset={dataset} arabic={!!ar} />}
-              </section>
-            </div>
-          </>
-        )}
-        {page === "explorer" && (
-          <>
-            <section className="panel">
-              <div className="section-heading">
-                <h2>{tr("Your musical library", "مكتبتك الموسيقية")}</h2>
-                <div className="inline">
-                  <button
-                    disabled={busy || !settings}
-                    className="button primary"
-                    onClick={loadReference}
-                  >
-                    {tr(
-                      "Load researched eight",
-                      "تحميل المقامات الثمانية الموثّقة المصادر",
-                    )}
-                  </button>
-                  <button
-                    disabled={busy || !settings}
-                    className="button subtle"
-                    onClick={loadDataset}
-                  >
-                    {tr("Import dataset", "استيراد البيانات")} ↗
-                  </button>
-                  {dataset && (
-                    <button
-                      className="button subtle"
-                      disabled={busy}
-                      onClick={clearDataset}
-                    >
-                      {tr("Remove", "إزالة")}
-                    </button>
-                  )}
-                </div>
               </div>
-              {dataset ? (
-                <DatasetSource dataset={dataset} arabic={!!ar} />
-              ) : (
-                <div className="empty">
-                  <span className="empty-symbol">◈</span>
-                  <h3>
-                    {tr(
-                      "Bring your musical knowledge.",
-                      "أحضر معرفتك الموسيقية.",
-                    )}
-                  </h3>
-                  <p>
-                    {tr(
-                      "Import a JSON dataset with sourced maqam and jins definitions. No invented definitions are bundled.",
-                      "استورد ملف JSON بتعريفات المقامات والأجناس ومصادرها. لا تتضمن الحزمة تعريفات مختلقة.",
-                    )}
-                  </p>
-                </div>
-              )}
+              <LiveFingerboard
+                store={store}
+                board={board}
+                settings={settings}
+                selected={selected}
+                onSelect={selectTarget}
+              />
             </section>
-            {settings && (
-              <section className="panel">
-                <div className="section-heading">
-                  <h2>{tr("Listen for a maqam", "استمع لاكتشاف المقام")}</h2>
-                  <label className="check">
-                    <input
-                      type="checkbox"
-                      disabled={busy || (!dataset && !settings.maqam.enabled)}
-                      checked={settings.maqam.enabled}
-                      onChange={(e) =>
-                        save({
-                          ...settings,
-                          maqam: {
-                            ...settings.maqam,
-                            enabled: e.target.checked,
-                          },
-                        })
-                      }
-                    />
-                    {tr("Enable analysis", "تفعيل التحليل")}
-                  </label>
-                </div>
-                <div className="fields">
-                  <label className="field">
-                    {tr("Pitch identity for analysis", "هوية النغمة للتحليل")}
-                    <select
-                      disabled={busy}
-                      value={settings.maqam.pitchSpace}
-                      onChange={(e) =>
-                        save({
-                          ...settings,
-                          maqam: {
-                            ...settings.maqam,
-                            pitchSpace: e.target.value as "player" | "sounding",
-                          },
-                        })
-                      }
-                    >
-                      <option value="player">
-                        {tr("Player notation", "أسماء العازف")}
-                      </option>
-                      <option value="sounding">
-                        {tr("Sounding pitch", "الصوت الحقيقي")}
-                      </option>
-                    </select>
-                  </label>
-                  <label className="field">
-                    {tr("Tonic", "القرار")}
-                    <select
-                      disabled={busy}
-                      value={
-                        settings.maqam.tonic
-                          ? JSON.stringify(settings.maqam.tonic)
-                          : ""
-                      }
-                      onChange={(e) =>
-                        save({
-                          ...settings,
-                          maqam: {
-                            ...settings.maqam,
-                            tonic: e.target.value
-                              ? JSON.parse(e.target.value)
-                              : null,
-                          },
-                        })
-                      }
-                    >
-                      <option value="">
-                        {tr("Consider likely tonics", "جرّب القرارات المحتملة")}
-                      </option>
-                      {tonicOptions.map((t) => (
-                        <option
-                          key={JSON.stringify(t.spelling)}
-                          value={JSON.stringify(t.spelling)}
-                        >
-                          {t.label.text}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-                <p className="muted">
-                  {tr(
-                    "A rolling 25-second window, updated every 5 seconds. Evidence includes scale fit, resting tones, ajnas, and characteristic phrases from your dataset. Scores are heuristic, not statistical probabilities.",
-                    "نافذة متحركة مدتها ٢٥ ثانية، تُحدّث كل ٥ ثوانٍ. تشمل الأدلة توافق السلم ونغمات الركوز والأجناس والعبارات من بياناتك. النتائج تقريبية وليست احتمالات إحصائية.",
-                  )}
-                </p>
-              </section>
+          )}
+          {board?.scale && settings && (
+            <MaqamScale scale={board.scale} settings={settings} />
+          )}
+          {settings?.showDiagnostics && (
+            <Diagnostics
+              store={store}
+              running={running}
+              status={status}
+              tr={tr}
+            />
+          )}
+        </div>
+      </main>
+      <footer>
+        <span>
+          <span className="privacy-dot" />
+          {tr(
+            "Ajnas · An attentive companion for your oud. Local analysis · No recordings.",
+            "أجناس · رفيق يصغي لعودك. تحليل محلي · دون تسجيل.",
+          )}
+        </span>
+        <span>
+          <bdi>{settings?.tuning === "edo12" ? "12" : "24"}-EDO</bdi> <i>·</i>{" "}
+          La4 <bdi>{settings?.referenceHz ?? 440} Hz</bdi> <i>·</i>{" "}
+          {tr("Transpose", "نقل")}{" "}
+          <bdi>
+            {settings?.transposition.amount ?? 0}{" "}
+            {settings?.transposition.unit ?? "semitone"}
+          </bdi>{" "}
+          <i>·</i> AJNAS / 0.2
+        </span>
+      </footer>
+      {settingsOpen && settings && (
+        <Drawer
+          title={tr("Settings", "الإعدادات")}
+          closeLabel={tr("Close", "إغلاق")}
+          onClose={closeSettings}
+        >
+          <p className="muted small drawer-intro">
+            {tr(
+              "Tune this space to your instrument.",
+              "اضبط هذه المساحة لتناسب آلتك.",
             )}
-            <div className="explorer-grid">
-              {dataset?.maqamat.map((m) => (
-                <section className="panel maqam-card" key={m.id}>
-                  <div className="eyebrow">
-                    {m.family ?? tr("MAQAM", "مقام")}
-                  </div>
-                  <h2>{m.name[ar ? "arabic" : "latin"]}</h2>
-                  <p className="muted">
-                    {m.description ??
-                      tr(
-                        "Defined in your loaded dataset.",
-                        "معرّف في ملف البيانات المحمّل.",
-                      )}
-                  </p>
-                  <div className="reference-notes">
-                    {catalogue
-                      .find((s) => s.maqamId === m.id)
-                      ?.notes.map((n) => (
-                        <span key={n.step}>{n.label.text}</span>
-                      ))}
-                  </div>
-                  <p className="fine-print">
-                    {tr("Reference tonic", "القرار المرجعي")}:{" "}
-                    {catalogue.find((s) => s.maqamId === m.id)?.tonic.text} ·{" "}
-                    {(m.variants?.length ?? 0) + 1}{" "}
-                    {tr("illustrated routes", "مسارات موضحة")}
-                  </p>
-                  <div className="intervals" dir="ltr">
-                    {m.ascending.map((d, i) => (
-                      <span key={i}>
-                        {d.cents}
-                        <small>¢</small>
-                      </span>
-                    ))}
-                  </div>
-                  <p className="muted">
-                    {m.ajnas
-                      .map(
-                        (j) =>
-                          dataset.ajnas.find((a) => a.id === j.jins)?.name[
-                            ar ? "arabic" : "latin"
-                          ] ?? j.jins,
-                      )
-                      .join(" · ")}
-                  </p>
-                  <button
-                    className="button subtle"
-                    onClick={() => {
-                      setMaqamId(m.id);
-                      setVariantId("");
-                      setTonic("");
-                      setTonicOctave(3);
-                      setSelectedId(null);
-                      setPage("teach");
-                    }}
-                  >
-                    {tr(
-                      "Explore on the fingerboard",
-                      "استكشف على لوحة الأصابع",
-                    )}{" "}
-                    →
-                  </button>
-                </section>
-              ))}
-            </div>
-            {analysisDisplay}
-          </>
-        )}
-        {page === "camera" && board && (
-          <CameraPanel
-            arabic={!!ar}
-            fingerboardLengthMm={board.fingerboardLengthMm}
-            courses={board.courses.length}
-            audio={
-              note && !note.holding
-                ? {
-                    receivedAt: store.receivedAt,
-                    playerPitch: note.playerPitch,
-                    confidence: frame?.confidence ?? 0,
-                    positions: note.positions,
-                  }
-                : null
-            }
-          />
-        )}
-        {page === "settings" && settings && (
+          </p>
           <SettingsPanel
             settings={settings}
             devices={devices}
@@ -1103,70 +714,58 @@ export default function App() {
             onSave={save}
             onRefresh={refreshDevices}
           />
-        )}
-        {settings?.showDiagnostics && (
-          <details className="panel diagnostics">
-            <summary>{tr("Developer diagnostics", "تشخيص المطوّر")}</summary>
-            <pre dir="ltr">
-              {JSON.stringify(
-                { frame: running ? frame : null, status },
-                null,
-                2,
-              )}
-            </pre>
-          </details>
-        )}
-        <footer>
-          <span>
-            {tr(
-              "Ajnas · An attentive companion for your oud.",
-              "أجناس · رفيق يصغي لعودك.",
-            )}
-          </span>
-          <span>
-            <bdi>{settings?.tuning === "edo12" ? "12" : "24"}-EDO</bdi> <i>·</i>{" "}
-            La4 <bdi>{settings?.referenceHz ?? 440} Hz</bdi> <i>·</i>{" "}
-            {tr("Transpose", "نقل")}{" "}
-            <bdi>
-              {settings?.transposition.amount ?? 0}{" "}
-              {settings?.transposition.unit ?? "semitone"}
-            </bdi>
-          </span>
-        </footer>
-      </main>
+        </Drawer>
+      )}
     </div>
   );
 }
-function DatasetSource({
-  dataset,
-  arabic,
+
+function Drawer({
+  title,
+  closeLabel,
+  onClose,
+  children,
 }: {
-  dataset: Dataset;
-  arabic: boolean;
+  title: string;
+  closeLabel: string;
+  onClose: () => void;
+  children: ReactNode;
 }) {
+  const close = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    close.current?.focus();
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", key);
+    return () => {
+      window.removeEventListener("keydown", key);
+      opener?.focus();
+    };
+  }, [onClose]);
   return (
-    <div
-      className={`dataset-source ${dataset.provenance.status === "validated" ? "" : "provisional"}`}
-    >
-      <strong>
-        {dataset.provenance.status === "validated"
-          ? arabic
-            ? "موثّق وفقاً لمصدر الملف"
-            : "Marked validated by dataset author"
-          : dataset.provenance.status === "syntheticTestData"
-            ? arabic
-              ? "بيانات اختبار اصطناعية — ليست نظرية موسيقية"
-              : "SYNTHETIC TEST DATA — not musical theory"
-            : arabic
-              ? "بيانات غير موثّقة"
-              : "Provisional / unvalidated data"}
-      </strong>
-      <p>{dataset.provenance.source}</p>
-      <small>
-        {dataset.maqamat.length} {arabic ? "مقامات" : "maqamat"} ·{" "}
-        {dataset.ajnas.length} {arabic ? "أجناس" : "ajnas"} ·{" "}
-        {dataset.provenance.version}
-      </small>
+    <div className="drawer-backdrop" onClick={onClose}>
+      <aside
+        className="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="drawer-header">
+          <h2>{title}</h2>
+          <button
+            ref={close}
+            className="drawer-close"
+            aria-label={closeLabel}
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </header>
+        {children}
+      </aside>
     </div>
   );
 }
