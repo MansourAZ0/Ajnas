@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import {
   calibrationKey,
   loadCalibration,
@@ -29,6 +36,8 @@ export interface CameraPanelProps {
   /** Physical nut-to-end distance of the region whose four corners are marked. */
   fingerboardLengthMm: number;
   courses: number;
+  /** Rendered over the live video, above the landmark canvas; non-interactive. */
+  overlay?: ReactNode;
 }
 
 export function CameraPanel({
@@ -36,6 +45,7 @@ export function CameraPanel({
   audio = null,
   fingerboardLengthMm,
   courses,
+  overlay,
 }: CameraPanelProps) {
   const text = (en: string, ar: string) => (arabic ? ar : en);
   const video = useRef<HTMLVideoElement>(null);
@@ -472,6 +482,14 @@ export function CameraPanel({
             cursor: editing ? "crosshair" : "default",
           }}
         />
+        {overlay && (
+          <div
+            className="camera-overlay"
+            style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
+          >
+            {overlay}
+          </div>
+        )}
       </div>
       {state === "running" && (
         <>
