@@ -25,6 +25,11 @@ function setup(getUserMedia: () => Promise<MediaStream>) {
     videoHeight: 540,
     readyState: 4,
     currentTime: 1,
+    loop: false,
+    muted: false,
+    src: "",
+    removeAttribute: vi.fn(),
+    load: vi.fn(),
   }) as unknown as HTMLVideoElement;
   const frames: FrameRequestCallback[] = [];
   class WorkerMock {
@@ -115,6 +120,31 @@ describe("camera session lifecycle without camera hardware", () => {
     expect(bitmap.close).toHaveBeenCalledTimes(1);
     expect(worker.postMessage).toHaveBeenCalledTimes(1); // Initialization only.
     expect(fixture.onObservation).not.toHaveBeenCalled();
+  });
+  it("runs a local video file through the same worker without requesting a camera", async () => {
+    const getUserMedia = vi.fn();
+    const fixture = setup(getUserMedia);
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:test");
+    const revokeObjectURL = vi
+      .spyOn(URL, "revokeObjectURL")
+      .mockImplementation(() => {});
+    const start = fixture.session.start({
+      kind: "file",
+      file: new Blob(),
+      name: "oud.mp4",
+    });
+    await flush();
+    const worker = fixture.WorkerMock.instances[0];
+    worker.onmessage?.({ data: { type: "ready" } } as MessageEvent);
+    const info = await start;
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(info.cameraId).toBe("file:oud.mp4");
+    expect(fixture.video.src).toBe("blob:test");
+    expect(fixture.video.loop).toBe(true);
+    fixture.session.stop();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:test");
+    expect(fixture.video.removeAttribute).toHaveBeenCalledWith("src");
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
   });
   it("labels permission and device failures without substituting fake observations", async () => {
     const fixture = setup(async () => {

@@ -58,6 +58,8 @@ export function CameraPanel({
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selected, setSelected] = useState("");
   const [info, setInfo] = useState<CameraInfo | null>(null);
+  /** Non-null while the pipeline runs on a local test video instead of the camera. */
+  const [testFile, setTestFile] = useState<string | null>(null);
   const [observation, setObservation] = useState<VisionObservation | null>(
     null,
   );
@@ -225,10 +227,11 @@ export function CameraPanel({
     setInfo(null);
   };
 
-  const start = async () => {
+  const start = async (file?: File) => {
     if (!video.current) return;
     const generation = ++uiGeneration.current;
     setError("");
+    setTestFile(file ? file.name : null);
     setObservation(null);
     setInfo(null);
     const current = new CameraSession(
@@ -255,9 +258,12 @@ export function CameraPanel({
     session.current = current;
     current.setFps(fps);
     try {
-      const camera = await current.start(selected);
+      const camera = await current.start(
+        file ? { kind: "file", file, name: file.name } : selected,
+      );
       if (!mounted.current || generation !== uiGeneration.current) return;
       setInfo(camera);
+      if (file) return;
       const list = await navigator.mediaDevices.enumerateDevices();
       if (mounted.current && generation === uiGeneration.current)
         setDevices(list.filter((d) => d.kind === "videoinput"));
@@ -418,9 +424,26 @@ export function CameraPanel({
             {text("Stop camera", "إيقاف الكاميرا")}
           </button>
         ) : (
-          <button className="button" onClick={() => void start()}>
-            {text("Start camera", "تشغيل الكاميرا")}
-          </button>
+          <>
+            <button className="button" onClick={() => void start()}>
+              {text("Start camera", "تشغيل الكاميرا")}
+            </button>
+            <label className="field">
+              {text(
+                "Test with a video file (instead of the camera)",
+                "اختبار بملف فيديو (بدلاً من الكاميرا)",
+              )}
+              <input
+                type="file"
+                accept="video/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) void start(file);
+                }}
+              />
+            </label>
+          </>
         )}
         <label className="field">
           {text("Inference rate", "معدل التتبّع")} · {fps}{" "}
@@ -446,6 +469,15 @@ export function CameraPanel({
             : text("Camera off", "الكاميرا متوقفة")}
       </p>
       {error && <p role="alert">{error}</p>}
+      {testFile && (state === "running" || state === "starting") && (
+        <p className="simulation-banner">
+          {text(
+            "VIDEO FILE TEST — tracking a local video, not the live camera",
+            "اختبار بملف فيديو — تتبّع فيديو محلي، لا الكاميرا المباشرة",
+          )}
+          : {testFile}
+        </p>
+      )}
       <div
         style={{
           position: "relative",

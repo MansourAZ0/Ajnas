@@ -6,6 +6,15 @@ export interface CameraInfo {
   height: number;
 }
 export type CameraState = "off" | "starting" | "running" | "error";
+/**
+ * Frame source. A string is a camera deviceId ("" = system default). A file
+ * runs the identical capture/worker/fusion pipeline on a looping local video,
+ * for testing without a camera; it is never uploaded.
+ */
+export type CameraSource =
+  | string
+  | { kind: "camera"; deviceId: string }
+  | { kind: "file"; file: Blob; name: string };
 
 export function cameraError(error: unknown): string {
   const name = error instanceof Error ? error.name : "";
@@ -17,6 +26,8 @@ export function cameraError(error: unknown): string {
       return "No camera is available. Connect a camera and refresh the list.";
     case "NotReadableError":
       return "Camera could not be opened. Close other apps using it, then try again.";
+    case "NotSupportedError":
+      return "This video file cannot be decoded here. Try an H.264 MP4 or WebM file.";
     case "OverconstrainedError":
       return "The selected camera is unavailable. Select another camera.";
     default:
@@ -41,6 +52,7 @@ export class CameraSession {
   private frameId = 0;
   private initializationTimer: ReturnType<typeof setTimeout> | undefined;
   private frameTimer: ReturnType<typeof setTimeout> | undefined;
+  private objectUrl: string | null = null;
 
   constructor(
     private video: HTMLVideoElement,
@@ -65,11 +77,26 @@ export class CameraSession {
     this.stream = null;
     this.video.pause();
     this.video.srcObject = null;
+    if (this.objectUrl) {
+      this.video.removeAttribute("src");
+      this.video.loop = false;
+      this.video.load(); // Releases the decoder.
+      URL.revokeObjectURL(this.objectUrl);
+      this.objectUrl = null;
+    }
     this.busy = false;
     if (notify) this.onState("off");
   }
 
-  async start(deviceId: string): Promise<CameraInfo> {
+  async start(source: CameraSource): Promise<CameraInfo> {
+    const file =
+      typeof source === "object" && source.kind === "file" ? source : null;
+    const deviceId =
+      typeof source === "string"
+        ? source
+        : source.kind === "camera"
+          ? source.deviceId
+          : "";
     this.stop(false);
     const generation = this.generation;
     const active = () => this.generation === generation;
@@ -79,7 +106,7 @@ export class CameraSession {
     this.abort = abort;
     this.onState("starting");
     try {
-      if (!navigator.mediaDevices?.getUserMedia)
+      if (!file && !navigator.mediaDevices?.getUserMedia)
         throw new Error(
           "Camera capture requires a secure origin and a supported webview.",
         );
@@ -91,31 +118,50 @@ export class CameraSession {
         throw new Error(
           "This webview does not support worker camera inference (ImageBitmap/OffscreenCanvas required).",
         );
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-          width: { ideal: 960 },
-          height: { ideal: 540 },
-          frameRate: { ideal: 24, max: 30 },
-        },
-      });
-      // getUserMedia cannot be aborted: release a stream granted after stop/unmount.
-      if (!active()) {
-        stream.getTracks().forEach((track) => track.stop());
-        throw aborted();
-      }
-      this.stream = stream;
-      for (const track of stream.getVideoTracks())
-        track.addEventListener(
-          "ended",
+      let stream: MediaStream | null = null;
+      if (file) {
+        this.objectUrl = URL.createObjectURL(file.file);
+        this.video.srcObject = null;
+        this.video.loop = true;
+        this.video.muted = true;
+        this.video.addEventListener(
+          "error",
           () => {
             if (active())
-              this.fail("Camera disconnected or access was revoked.");
+              this.fail(
+                "This video file cannot be decoded here. Try an H.264 MP4 or WebM file.",
+              );
           },
           { signal: abort.signal },
         );
-      this.video.srcObject = stream;
+        this.video.src = this.objectUrl;
+      } else {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+            width: { ideal: 960 },
+            height: { ideal: 540 },
+            frameRate: { ideal: 24, max: 30 },
+          },
+        });
+        // getUserMedia cannot be aborted: release a stream granted after stop/unmount.
+        if (!active()) {
+          stream.getTracks().forEach((track) => track.stop());
+          throw aborted();
+        }
+        this.stream = stream;
+        for (const track of stream.getVideoTracks())
+          track.addEventListener(
+            "ended",
+            () => {
+              if (active())
+                this.fail("Camera disconnected or access was revoked.");
+            },
+            { signal: abort.signal },
+          );
+        this.video.srcObject = stream;
+      }
       await this.video.play();
       if (!active()) throw aborted();
       if (!this.video.videoWidth || !this.video.videoHeight) {
@@ -248,8 +294,9 @@ export class CameraSession {
       };
       this.animation = requestAnimationFrame(tick);
       return {
-        cameraId:
-          stream.getVideoTracks()[0]?.getSettings().deviceId || deviceId,
+        cameraId: file
+          ? `file:${file.name}`
+          : stream?.getVideoTracks()[0]?.getSettings().deviceId || deviceId,
         width: this.video.videoWidth,
         height: this.video.videoHeight,
       };
