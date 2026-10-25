@@ -51,7 +51,7 @@ describe("fretting-hand selection", () => {
       0,
       base,
     );
-    expect(pick).toEqual({ index: 1, reason: "handedness" });
+    expect(pick).toMatchObject({ index: 1, reason: "handedness" });
     const lefty = new FrettingHandSelector().select(
       [plucking, fretting],
       [label("Right"), label("Left")],
@@ -63,7 +63,9 @@ describe("fretting-hand selection", () => {
 
   it("does not draw a lone plucking hand", () => {
     const selector = new FrettingHandSelector();
-    expect(selector.select([plucking], [label("Right")], 0, base)).toEqual({
+    expect(
+      selector.select([plucking], [label("Right")], 0, base),
+    ).toMatchObject({
       index: null,
       reason: "none",
     });
@@ -73,7 +75,7 @@ describe("fretting-hand selection", () => {
     const selector = new FrettingHandSelector();
     selector.select([fretting], [label("Left")], 0, base);
     const moved = hand(0.76, 0.43);
-    expect(selector.select([moved], [label("Right")], 70, base)).toEqual({
+    expect(selector.select([moved], [label("Right")], 70, base)).toMatchObject({
       index: 0,
       reason: "tracking",
     });
@@ -89,10 +91,34 @@ describe("fretting-hand selection", () => {
       null,
     );
     selector.select([fretting], [label("Left")], 10, base);
-    expect(selector.select([plucking, fretting], both, 40, base)).toEqual({
-      index: 1,
-      reason: "tracking",
-    });
+    expect(selector.select([plucking, fretting], both, 40, base)).toMatchObject(
+      {
+        index: 1,
+        reason: "tracking",
+      },
+    );
+  });
+
+  it("needs persistent contrary labels to leave the tracked hand", () => {
+    const selector = new FrettingHandSelector();
+    const swapped = [label("Left"), label("Right")]; // Both wrong this frame.
+    expect(
+      selector.select(
+        [plucking, fretting],
+        [label("Right"), label("Left")],
+        0,
+        base,
+      ),
+    ).toMatchObject({ index: 1, continued: false });
+    expect(
+      selector.select([plucking, fretting], swapped, 30, base),
+    ).toMatchObject({ index: 1, reason: "tracking", continued: true });
+    expect(selector.select([plucking, fretting], swapped, 60, base).index).toBe(
+      1,
+    );
+    expect(
+      selector.select([plucking, fretting], swapped, 90, base),
+    ).toMatchObject({ index: 0, reason: "handedness", continued: false });
   });
 
   it("prefers fingertips over the calibrated fingerboard regardless of labels", () => {
@@ -103,7 +129,7 @@ describe("fretting-hand selection", () => {
     const wrongLabels = [label("Left"), label("Right")];
     expect(
       selector.select([plucking, fretting], wrongLabels, 0, { ...base, board }),
-    ).toEqual({ index: 1, reason: "fingerboard" });
+    ).toMatchObject({ index: 1, reason: "fingerboard" });
     expect(
       selector.select([plucking], wrongLabels, 30, { ...base, board }).index,
     ).toBeNull();

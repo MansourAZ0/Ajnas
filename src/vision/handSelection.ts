@@ -30,6 +30,8 @@ export type SelectionReason =
 export interface HandSelection {
   index: number | null;
   reason: SelectionReason;
+  /** The selected hand is near the previous selection (same physical hand). */
+  continued: boolean;
 }
 
 export const FRETTING_TIPS = [8, 12, 16, 20] as const;
@@ -95,11 +97,14 @@ export interface SelectorTuning {
   trackingRadius: number;
   /** Fingertips over the board needed to be a fretting candidate. */
   minFingerboardScore: number;
+  /** Consecutive frames of contrary handedness needed to leave the tracked hand. */
+  switchFrames: number;
 }
 export const DEFAULT_SELECTOR_TUNING: SelectorTuning = {
   memoryMs: 400,
   trackingRadius: 0.12,
   minFingerboardScore: 0.5,
+  switchFrames: 3,
 };
 
 /**
@@ -110,11 +115,13 @@ export const DEFAULT_SELECTOR_TUNING: SelectorTuning = {
  */
 export class FrettingHandSelector {
   private last: { centre: Point; at: number } | null = null;
+  private disagreements = 0;
 
   constructor(private tuning: SelectorTuning = DEFAULT_SELECTOR_TUNING) {}
 
   reset() {
     this.last = null;
+    this.disagreements = 0;
   }
 
   select(
@@ -141,7 +148,10 @@ export class FrettingHandSelector {
     const near = (i: number) =>
       distance(hands[i]) <= this.tuning.trackingRadius;
     const indices = hands.map((_, i) => i);
-    let result: HandSelection = { index: null, reason: "none" };
+    let result: Omit<HandSelection, "continued"> = {
+      index: null,
+      reason: "none",
+    };
 
     if (options.board) {
       const board = options.board;
@@ -166,7 +176,18 @@ export class FrettingHandSelector {
         .filter(near)
         .sort((a, b) => distance(hands[a]) - distance(hands[b]))[0];
       if (matching.length === 1) {
-        result = { index: matching[0], reason: "handedness" };
+        if (
+          tracked !== undefined &&
+          tracked !== matching[0] &&
+          this.disagreements < this.tuning.switchFrames - 1
+        ) {
+          // Labels say "the other hand" while we track one: require persistence.
+          this.disagreements++;
+          result = { index: tracked, reason: "tracking" };
+        } else {
+          this.disagreements = 0;
+          result = { index: matching[0], reason: "handedness" };
+        }
       } else if (matching.length > 1) {
         // Both labelled the same: continue the tracked one, else stay unknown.
         if (tracked !== undefined && matching.includes(tracked))
@@ -176,8 +197,9 @@ export class FrettingHandSelector {
         result = { index: tracked, reason: "tracking" };
       }
     }
+    const continued = result.index !== null && near(result.index);
     if (result.index !== null)
       this.last = { centre: centre(hands[result.index]), at };
-    return result;
+    return { ...result, continued };
   }
 }
