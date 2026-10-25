@@ -146,6 +146,44 @@ describe("camera session lifecycle without camera hardware", () => {
     expect(fixture.video.removeAttribute).toHaveBeenCalledWith("src");
     expect(worker.terminate).toHaveBeenCalledTimes(1);
   });
+  it("restarts on the CPU when the first GPU inference never returns", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const fixture = setup(async () => fixture.stream);
+      vi.stubGlobal(
+        "createImageBitmap",
+        vi.fn(async () => ({ close: vi.fn(), width: 640, height: 360 })),
+      );
+      fixture.session.setWorkerOptions({ delegate: "GPU", numHands: 2 });
+      const start = fixture.session.start("");
+      await flush();
+      const gpu = fixture.WorkerMock.instances[0];
+      expect(gpu.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ options: { delegate: "GPU", numHands: 2 } }),
+      );
+      gpu.onmessage?.({
+        data: { type: "ready", delegate: "GPU" },
+      } as MessageEvent);
+      await start;
+      fixture.frames.shift()!(performance.now() + 100);
+      await flush();
+      expect(gpu.postMessage).toHaveBeenCalledTimes(2); // init + frame
+      vi.advanceTimersByTime(4000);
+      await flush();
+      expect(gpu.terminate).toHaveBeenCalledTimes(1);
+      const cpu = fixture.WorkerMock.instances[1];
+      expect(cpu.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ options: { delegate: "CPU", numHands: 2 } }),
+      );
+      expect(fixture.onState).not.toHaveBeenCalledWith(
+        "error",
+        expect.anything(),
+      );
+      fixture.session.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("labels permission and device failures without substituting fake observations", async () => {
     const fixture = setup(async () => {
       throw new DOMException("Denied", "NotAllowedError");

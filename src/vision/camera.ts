@@ -1,11 +1,22 @@
-import type { VisionObservation, WorkerReply } from "./types";
+import type {
+  Delegate,
+  VisionObservation,
+  WorkerOptions,
+  WorkerReply,
+} from "./types";
 
 export interface CameraInfo {
   cameraId: string;
   width: number;
   height: number;
+  /** Inference backend actually in use (GPU falls back to CPU automatically). */
+  delegate: Delegate;
 }
 export type CameraState = "off" | "starting" | "running" | "error";
+/** Default longest side of the model input; see docs/VISION.md for measurements. */
+export const DEFAULT_MAX_INPUT_SIZE = 640;
+/** First GPU inference slower than this is treated as a hung context. */
+export const GPU_FIRST_FRAME_TIMEOUT_MS = 4000;
 /**
  * Frame source. A string is a camera deviceId ("" = system default). A file
  * runs the identical capture/worker/fusion pipeline on a looping local video,
@@ -45,14 +56,28 @@ export class CameraSession {
   private worker: Worker | null = null;
   private animation = 0;
   private busy = false;
-  private frameDeadline = 0;
-  private fps = 12;
+  /** 0 = as fast as the worker returns results (one frame in flight). */
+  private fps = 0;
+  private maxInputSize = DEFAULT_MAX_INPUT_SIZE;
   private lastCapture = -Infinity;
   private lastVideoTime = -1;
+  /** Count of frames presented by the video element (requestVideoFrameCallback). */
+  private presented = 0;
+  private lastPresented = -1;
+  private videoFrameCallback = 0;
+  /** null = unknown; false = createImageBitmap ignores resize options (e.g. older WebKit). */
+  private resizeSupported: boolean | null = null;
+  private scratch: OffscreenCanvas | null = null;
+  private pending: { frameId: number; width: number; height: number } | null =
+    null;
   private frameId = 0;
   private initializationTimer: ReturnType<typeof setTimeout> | undefined;
   private frameTimer: ReturnType<typeof setTimeout> | undefined;
   private objectUrl: string | null = null;
+  private delegate: Delegate = "CPU";
+  /** True once the current worker returned a result (its delegate works). */
+  private delegateConfirmed = false;
+  private workerOptions: WorkerOptions = {};
 
   constructor(
     private video: HTMLVideoElement,
@@ -60,8 +85,26 @@ export class CameraSession {
     private onObservation: (observation: VisionObservation) => void,
   ) {}
 
+  /** Applies at the next start(): MediaPipe options are fixed per worker. */
+  setWorkerOptions(options: WorkerOptions) {
+    this.workerOptions = { ...options };
+  }
+
+  /** Frames per second, 1–30; 0 (default) = as fast as the worker returns. */
   setFps(value: number) {
-    this.fps = Math.min(30, Math.max(1, Number.isFinite(value) ? value : 12));
+    this.fps =
+      value === 0
+        ? 0
+        : Math.min(30, Math.max(1, Number.isFinite(value) ? value : 0));
+  }
+
+  /**
+   * Longest side, in pixels, of the bitmap sent to the worker (0 = full size).
+   * Landmarks are normalised, so only the model input shrinks; the preview and
+   * calibration keep the camera's full resolution.
+   */
+  setMaxInputSize(value: number) {
+    this.maxInputSize = Number.isFinite(value) && value > 0 ? value : 0;
   }
 
   stop(notify = true) {
@@ -69,6 +112,9 @@ export class CameraSession {
     this.abort?.abort();
     this.abort = null;
     cancelAnimationFrame(this.animation);
+    if (this.videoFrameCallback)
+      this.video.cancelVideoFrameCallback?.(this.videoFrameCallback);
+    this.videoFrameCallback = 0;
     clearTimeout(this.initializationTimer);
     clearTimeout(this.frameTimer);
     this.worker?.terminate();
@@ -85,6 +131,8 @@ export class CameraSession {
       this.objectUrl = null;
     }
     this.busy = false;
+    this.pending = null;
+    this.scratch = null;
     if (notify) this.onState("off");
   }
 
@@ -192,86 +240,178 @@ export class CameraSession {
         `${import.meta.env.BASE_URL}vision/`,
         window.location.href,
       ).href;
-      const worker = new Worker(new URL("hand-worker.js", assetRoot)); // Classic, for the WASM loader's importScripts.
-      this.worker = worker;
-      await new Promise<void>((resolve, reject) => {
-        let ready = false;
-        const cancel = () => reject(aborted());
-        abort.signal.addEventListener("abort", cancel, { once: true });
-        const fail = (message: string) => {
-          clearTimeout(this.initializationTimer);
-          abort.signal.removeEventListener("abort", cancel);
-          if (!ready) reject(new Error(message));
-          else if (active()) this.fail(message);
-        };
-        this.initializationTimer = setTimeout(
-          () =>
-            fail(
-              "Vision initialization timed out. Prepare local assets and check webview WASM support.",
-            ),
-          25_000,
-        );
-        worker.onerror = (event) =>
-          fail(
-            event.message ||
-              "Vision worker failed. Check local assets and content security policy.",
-          );
-        worker.onmessageerror = () =>
-          fail("Vision worker returned an unreadable message.");
-        worker.onmessage = (event: MessageEvent<WorkerReply>) => {
-          if (!active()) return;
-          const message = event.data;
-          if (message.type === "error") {
-            fail(message.message);
-            return;
-          }
-          if (message.type === "ready") {
-            ready = true;
+      let worker: Worker;
+      const spawn = async (options: WorkerOptions) => {
+        worker = new Worker(new URL("hand-worker.js", assetRoot)); // Classic, for the WASM loader's importScripts.
+        this.worker = worker;
+        await new Promise<void>((resolve, reject) => {
+          let ready = false;
+          const cancel = () => reject(aborted());
+          abort.signal.addEventListener("abort", cancel, { once: true });
+          const fail = (message: string) => {
             clearTimeout(this.initializationTimer);
             abort.signal.removeEventListener("abort", cancel);
-            resolve();
-          } else if (message.type === "result") {
-            clearTimeout(this.frameTimer);
-            this.busy = false;
-            // Both matching clocks originate in this main window. Worker time is duration only.
-            const receivedAt = performance.now();
-            this.onObservation({
-              ...message,
-              timestamp: receivedAt,
-              receivedAt,
-            });
-          }
-        };
-        worker.postMessage({ type: "init", assetRoot });
-      });
+            if (!ready) reject(new Error(message));
+            else if (active()) this.fail(message);
+          };
+          this.initializationTimer = setTimeout(
+            () =>
+              fail(
+                "Vision initialization timed out. Prepare local assets and check webview WASM support.",
+              ),
+            25_000,
+          );
+          worker.onerror = (event) =>
+            fail(
+              event.message ||
+                "Vision worker failed. Check local assets and content security policy.",
+            );
+          worker.onmessageerror = () =>
+            fail("Vision worker returned an unreadable message.");
+          worker.onmessage = (event: MessageEvent<WorkerReply>) => {
+            if (!active()) return;
+            const message = event.data;
+            if (message.type === "error") {
+              fail(message.message);
+              return;
+            }
+            if (message.type === "ready") {
+              ready = true;
+              this.delegate = message.delegate ?? "CPU";
+              clearTimeout(this.initializationTimer);
+              abort.signal.removeEventListener("abort", cancel);
+              resolve();
+            } else if (message.type === "result") {
+              clearTimeout(this.frameTimer);
+              this.delegateConfirmed = true;
+              this.busy = false;
+              // Both matching clocks originate in this main window. Worker time is duration only.
+              const receivedAt = performance.now();
+              const { type: _type, width, height, ...result } = message;
+              const source =
+                this.pending?.frameId === message.frameId ? this.pending : null;
+              this.pending = null;
+              this.onObservation({
+                ...result,
+                width: source?.width ?? width,
+                height: source?.height ?? height,
+                inputWidth: width,
+                inputHeight: height,
+                handedness: result.handedness ?? result.hands.map(() => null),
+                delegate: result.delegate ?? this.delegate,
+                timestamp: receivedAt,
+                receivedAt,
+              });
+              // Start the next inference now rather than at the next animation frame.
+              if (active()) capture(performance.now());
+            }
+          };
+          worker.postMessage({
+            type: "init",
+            assetRoot,
+            options,
+          });
+        });
+      };
+      await spawn(this.workerOptions);
+      // A GPU context that never returns (seen with software WebGL) must not
+      // stall tracking: restart once on the CPU if the first GPU frame hangs.
+      this.delegateConfirmed = false;
+      const fallBackToCpu = async () => {
+        worker.terminate();
+        this.busy = true; // Blocks capture while the CPU worker starts.
+        this.pending = null;
+        try {
+          await spawn({ ...this.workerOptions, delegate: "CPU" });
+        } catch (error) {
+          if (active()) this.fail(cameraError(error));
+          return;
+        }
+        if (active()) this.busy = false;
+      };
       if (!active()) throw aborted();
       this.lastCapture = -Infinity;
       this.lastVideoTime = -1;
+      this.presented = 0;
+      this.lastPresented = -1;
+      this.resizeSupported = null;
       this.onState("running");
-      const tick = (now: number) => {
-        if (!active()) return;
-        this.animation = requestAnimationFrame(tick);
+      const video = this.video;
+      const countFrames = typeof video.requestVideoFrameCallback === "function";
+      if (countFrames) {
+        const onFrame = () => {
+          if (!active()) return;
+          this.presented++;
+          this.videoFrameCallback = video.requestVideoFrameCallback(onFrame);
+        };
+        this.videoFrameCallback = video.requestVideoFrameCallback(onFrame);
+      }
+      const bitmapOf = async (): Promise<ImageBitmap> => {
+        const width = video.videoWidth;
+        const height = video.videoHeight;
+        const scale =
+          this.maxInputSize > 0
+            ? Math.min(1, this.maxInputSize / Math.max(width, height))
+            : 1;
+        if (scale >= 1) return createImageBitmap(video);
+        const w = Math.max(1, Math.round(width * scale));
+        const h = Math.max(1, Math.round(height * scale));
+        if (this.resizeSupported !== false) {
+          const bitmap = await createImageBitmap(video, {
+            resizeWidth: w,
+            resizeHeight: h,
+            resizeQuality: "low",
+          });
+          this.resizeSupported = bitmap.width === w && bitmap.height === h;
+          return bitmap; // Full size if unsupported: still correct, just slower.
+        }
+        // Fallback for engines that ignore resize options: GPU-side scaled copy.
+        if (
+          !this.scratch ||
+          this.scratch.width !== w ||
+          this.scratch.height !== h
+        )
+          this.scratch = new OffscreenCanvas(w, h);
+        const context = this.scratch.getContext("2d");
+        if (!context) return createImageBitmap(video);
+        context.drawImage(video, 0, 0, w, h);
+        return this.scratch.transferToImageBitmap();
+      };
+      const capture = (now: number) => {
         if (
           this.busy ||
           document.hidden ||
-          this.video.readyState < 2 ||
-          now - this.lastCapture < 1000 / this.fps ||
-          this.video.currentTime === this.lastVideoTime
+          video.readyState < 2 ||
+          (this.fps > 0 && now - this.lastCapture < 1000 / this.fps - 1)
         )
           return;
+        if (countFrames) {
+          if (this.presented === this.lastPresented) return;
+        } else if (video.currentTime === this.lastVideoTime) return;
         this.lastCapture = now;
-        this.lastVideoTime = this.video.currentTime;
+        this.lastVideoTime = video.currentTime;
+        this.lastPresented = this.presented;
         this.busy = true; // Covers bitmap creation too: no queued frames.
-        this.frameDeadline = performance.now();
-        const capturedAt = this.frameDeadline;
+        const capturedAt = performance.now();
         const frameId = ++this.frameId;
-        this.frameTimer = setTimeout(() => {
-          if (active())
-            this.fail(
-              "Vision inference timed out. Stop and restart the camera.",
-            );
-        }, 10_000);
-        void createImageBitmap(this.video).then(
+        this.pending = {
+          frameId,
+          width: video.videoWidth,
+          height: video.videoHeight,
+        };
+        const untested = this.delegate === "GPU" && !this.delegateConfirmed;
+        this.frameTimer = setTimeout(
+          () => {
+            if (!active()) return;
+            if (untested) void fallBackToCpu();
+            else
+              this.fail(
+                "Vision inference timed out. Stop and restart the camera.",
+              );
+          },
+          untested ? GPU_FIRST_FRAME_TIMEOUT_MS : 10_000,
+        );
+        void bitmapOf().then(
           (bitmap) => {
             if (!active()) {
               bitmap.close();
@@ -292,6 +432,11 @@ export class CameraSession {
           },
         );
       };
+      const tick = (now: number) => {
+        if (!active()) return;
+        this.animation = requestAnimationFrame(tick);
+        capture(now);
+      };
       this.animation = requestAnimationFrame(tick);
       return {
         cameraId: file
@@ -299,6 +444,7 @@ export class CameraSession {
           : stream?.getVideoTracks()[0]?.getSettings().deviceId || deviceId,
         width: this.video.videoWidth,
         height: this.video.videoHeight,
+        delegate: this.delegate,
       };
     } catch (error) {
       if (active()) this.fail(cameraError(error));
