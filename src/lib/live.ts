@@ -30,7 +30,12 @@ export class PerformanceStore extends LiveStore<LiveFrame> {
   }
 }
 
-/** Continuous target comparison, preserving custom intonation from Rust. */
+/**
+ * Continuous target comparison, preserving custom intonation from Rust.
+ * Cents are measured against the target's nearest octave; `octaves` reports
+ * how many octaves away the played note is, so a correct pitch class in
+ * another register is not shown as e.g. "+1200 cents".
+ */
 export function coaching(
   frame: LiveFrame | null,
   target: Target | null,
@@ -45,9 +50,12 @@ export function coaching(
     now - receivedAt > 350
   )
     return null;
-  const cents = 100 * (frame.note.playerPitch - target.playerPitch);
+  const semitones = frame.note.playerPitch - target.playerPitch;
+  const octaves = Math.round(semitones / 12);
+  const cents = 100 * (semitones - 12 * octaves);
   return {
     cents,
+    octaves,
     state:
       Math.abs(cents) <= 10
         ? ("inTune" as const)

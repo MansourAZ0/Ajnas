@@ -37,3 +37,28 @@ export function agoText(ms: number, arabic: boolean): string {
   if (s < 1) return arabic ? "الآن" : "now";
   return arabic ? `منذ ${s} ث` : `${s}s ago`;
 }
+
+/** Explains that intonation is compared with the target's nearest octave. */
+export function octaveHint(
+  octaves: number,
+  tr: (en: string, ar: string) => string,
+) {
+  const n = Math.abs(octaves);
+  return octaves > 0
+    ? tr(
+        n === 1
+          ? "Played an octave above the target."
+          : `Played ${n} octaves above the target.`,
+        n === 1
+          ? "عُزفت أعلى من الهدف بأوكتاف."
+          : `عُزفت أعلى من الهدف بـ${n} أوكتاف.`,
+      )
+    : tr(
+        n === 1
+          ? "Played an octave below the target."
+          : `Played ${n} octaves below the target.`,
+        n === 1
+          ? "عُزفت أخفض من الهدف بأوكتاف."
+          : `عُزفت أخفض من الهدف بـ${n} أوكتاف.`,
+      );
+}

@@ -21,6 +21,16 @@ describe("target coaching", () => {
       coaching(frame, { playerPitch: 64 } as Target, 1000, 1050)?.state,
     ).toBe("flat");
   });
+  it("folds other octaves of the target and reports them", () => {
+    const below = coaching(frame, { playerPitch: 75.5 } as Target, 1000, 1050);
+    expect(below?.cents).toBeCloseTo(7);
+    expect(below?.octaves).toBe(-1);
+    expect(below?.state).toBe("inTune");
+    const above = coaching(frame, { playerPitch: 51.6 } as Target, 1000, 1050);
+    expect(above?.cents).toBeCloseTo(-3);
+    expect(above?.octaves).toBe(1);
+    expect(coaching(frame, target, 1000, 1050)?.octaves).toBe(0);
+  });
   it("withholds stale, held and low confidence readings", () => {
     expect(coaching(frame, target, 1000, 1500)).toBeNull();
     expect(

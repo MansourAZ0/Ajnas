@@ -5,6 +5,7 @@
 import { memo, type ReactNode } from "react";
 import { CentsMeter, NoteName, useLive } from "@naghma/ui";
 import { coaching, type PerformanceStore } from "../lib/live";
+import { octaveHint } from "../lib/format";
 import { FRESH_MS, useFreshFrame } from "../lib/liveHooks";
 import type {
   AudioStatus,
@@ -254,6 +255,7 @@ export const PracticeCoach = memo(function PracticeCoach({
       (!!a &&
         !!b &&
         a.state === b.state &&
+        a.octaves === b.octaves &&
         a.cents.toFixed(1) === b.cents.toFixed(1)),
     15,
   );
@@ -279,6 +281,9 @@ export const PracticeCoach = memo(function PracticeCoach({
             </bdi>{" "}
             <span>{tr("cents from target", "سنت عن الهدف")}</span>
           </p>
+          {coach && coach.octaves !== 0 && (
+            <p className="fine-print">{octaveHint(coach.octaves, tr)}</p>
+          )}
           <p className="muted">
             {coach
               ? coach.state === "inTune"

@@ -3,7 +3,7 @@ import { NoteName, tuningZone, useLive } from "@naghma/ui";
 import { coaching, type PerformanceStore } from "../lib/live";
 import { useFreshFrame, useNow } from "../lib/liveHooks";
 import { recentMaqamat, type MaqamSighting } from "../lib/maqamLog";
-import { agoText, signed, transpositionText } from "../lib/format";
+import { agoText, octaveHint, signed, transpositionText } from "../lib/format";
 import type { Dataset, LiveNote, Settings, Target } from "../lib/types";
 
 export interface CameraHudProps {
@@ -260,12 +260,12 @@ function TargetCard({
     store,
     (f) => {
       const c = coaching(f, target, store.receivedAt, performance.now());
-      return c ? `${c.state}|${c.cents.toFixed(1)}` : null;
+      return c ? `${c.state}|${c.cents.toFixed(1)}|${c.octaves}` : null;
     },
     Object.is,
     15,
   );
-  const [state, cents] = coach ? coach.split("|") : [null, null];
+  const [state, cents, octaves] = coach ? coach.split("|") : [null, null, null];
   return (
     <div className={`hud-card hud-target ${state ?? "idle"}`}>
       <div className="hud-eyebrow">{tr("TARGET", "الهدف")}</div>
@@ -288,6 +288,9 @@ function TargetCard({
             : state === "sharp"
               ? tr("A little lower.", "اخفض النغمة قليلاً.")
               : tr("Play the selected note.", "اعزف النغمة المختارة.")}
+        {octaves && octaves !== "0" && (
+          <> · {octaveHint(Number(octaves), tr)}</>
+        )}
       </div>
     </div>
   );
