@@ -32,6 +32,7 @@ import {
   type HandSelection,
   type HandSide,
 } from "../vision/handSelection";
+import { HandCountPolicy } from "../vision/handCount";
 import { LandmarkSmoother } from "../vision/smoothing";
 import type {
   AudioEvidence,
@@ -43,7 +44,10 @@ import type {
 
 /** Advanced/testing knobs; the defaults are the measured choices in docs/VISION.md. */
 export interface AdvancedVisionOptions {
-  /** MediaPipe worker options, applied at the next start. */
+  /**
+   * MediaPipe worker options, applied at the next start. Setting numHands pins
+   * it; otherwise it adapts (one hand, two while searching for the fretting hand).
+   */
   worker?: WorkerOptions;
   /** Longest side of the model input in pixels; 0 = full camera resolution. */
   maxInputSize?: number;
@@ -131,6 +135,7 @@ export function CameraPanel({
   const [calibrationError, setCalibrationError] = useState("");
   const selector = useRef(new FrettingHandSelector());
   const smoother = useRef(new LandmarkSmoother());
+  const handCount = useRef(new HandCountPolicy());
   const smoothing = advanced?.smoothing ?? true;
   /** Values the worker callback and draw loop need, without re-subscribing. */
   const live = useRef({
@@ -389,6 +394,9 @@ export function CameraPanel({
     if (!file) setMirrored(false); // The live preview is never mirrored.
     clearTracking();
     setInfo(null);
+    const adaptive = advanced?.worker?.numHands === undefined;
+    let requested = advanced?.worker?.numHands ?? 1;
+    handCount.current.reset();
     const current = new CameraSession(
       video.current,
       (next, message) => {
@@ -425,6 +433,17 @@ export function CameraPanel({
             : raw;
         }
         latest.current = { observation: result, selection, hand };
+        if (adaptive) {
+          const numHands = handCount.current.update(
+            selection,
+            result.hands.length,
+            result.capturedAt,
+          );
+          if (numHands !== requested) {
+            requested = numHands;
+            current.setNumHands(numHands);
+          }
+        }
         setInfo((previous) =>
           previous &&
           (previous.width !== result.width || previous.height !== result.height)
@@ -437,7 +456,7 @@ export function CameraPanel({
     session.current = current;
     current.setFps(fps);
     current.setMaxInputSize(advanced?.maxInputSize ?? DEFAULT_MAX_INPUT_SIZE);
-    if (advanced?.worker) current.setWorkerOptions(advanced.worker);
+    current.setWorkerOptions({ ...advanced?.worker, numHands: requested });
     try {
       const camera = await current.start(
         file ? { kind: "file", file, name: file.name } : selected,
@@ -816,8 +835,11 @@ export function CameraPanel({
             <p>
               {text("Inference", "المعالجة")}:{" "}
               {observation.inferenceMs.toFixed(1)} ms ({observation.delegate},{" "}
-              {observation.inputWidth}×{observation.inputHeight}) ·{" "}
-              {rate.toFixed(0)} {text("fps", "إطار/ث")} ·{" "}
+              {observation.inputWidth}×{observation.inputHeight},{" "}
+              {observation.numHands === 1
+                ? text("1-hand model", "نموذج يد واحدة")
+                : text("2-hand model", "نموذج يدين")}
+              ) · {rate.toFixed(0)} {text("fps", "إطار/ث")} ·{" "}
               {text("frame age", "عمر الإطار")}:{" "}
               {Math.max(0, Math.round(now - observation.capturedAt))} ms ·{" "}
               {text("hands seen", "الأيدي المرئية")}:{" "}
