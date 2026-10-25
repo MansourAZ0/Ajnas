@@ -184,6 +184,46 @@ describe("camera session lifecycle without camera hardware", () => {
       vi.useRealTimers();
     }
   });
+  it("keeps capturing when requestVideoFrameCallback stops firing but playback continues", async () => {
+    const fixture = setup(async () => fixture.stream);
+    const video = fixture.video as unknown as {
+      requestVideoFrameCallback: () => number;
+      cancelVideoFrameCallback: () => void;
+      currentTime: number;
+    };
+    video.requestVideoFrameCallback = vi.fn(() => 1); // Registered, never fires.
+    video.cancelVideoFrameCallback = vi.fn();
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn(async () => ({ close: vi.fn(), width: 640, height: 360 })),
+    );
+    const start = fixture.session.start("");
+    await flush();
+    const worker = fixture.WorkerMock.instances[0];
+    worker.onmessage?.({ data: { type: "ready" } } as MessageEvent);
+    await start;
+    const t0 = performance.now();
+    fixture.frames.shift()!(t0); // No presented frame counted yet: stale fallback only.
+    expect(createImageBitmap).toHaveBeenCalledTimes(1); // First frame: lastCapture = -Infinity.
+    await flush();
+    worker.onmessage?.({
+      data: {
+        type: "result",
+        frameId: 1,
+        capturedAt: t0,
+        width: 640,
+        height: 360,
+        inferenceMs: 5,
+        hands: [],
+      },
+    } as MessageEvent);
+    video.currentTime = 2;
+    fixture.frames.shift()!(t0 + 100);
+    expect(createImageBitmap).toHaveBeenCalledTimes(1); // Too soon without a frame callback.
+    fixture.frames.shift()!(t0 + 300);
+    expect(createImageBitmap).toHaveBeenCalledTimes(2);
+    fixture.session.stop();
+  });
   it("labels permission and device failures without substituting fake observations", async () => {
     const fixture = setup(async () => {
       throw new DOMException("Denied", "NotAllowedError");

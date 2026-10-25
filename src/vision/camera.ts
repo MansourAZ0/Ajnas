@@ -17,6 +17,7 @@ export type CameraState = "off" | "starting" | "running" | "error";
 export const DEFAULT_MAX_INPUT_SIZE = 640;
 /** First GPU inference slower than this is treated as a hung context. */
 export const GPU_FIRST_FRAME_TIMEOUT_MS = 4000;
+const RVFC_STALL_MS = 250;
 /**
  * Frame source. A string is a camera deviceId ("" = system default). A file
  * runs the identical capture/worker/fusion pipeline on a looping local video,
@@ -385,9 +386,15 @@ export class CameraSession {
           (this.fps > 0 && now - this.lastCapture < 1000 / this.fps - 1)
         )
           return;
-        if (countFrames) {
-          if (this.presented === this.lastPresented) return;
-        } else if (video.currentTime === this.lastVideoTime) return;
+        const advanced = video.currentTime !== this.lastVideoTime;
+        // requestVideoFrameCallback marks each new frame exactly; it was seen to
+        // stop firing intermittently under heavy load while playback continued,
+        // so a moving currentTime still triggers a capture after 250 ms.
+        const fresh = countFrames
+          ? this.presented !== this.lastPresented ||
+            (advanced && now - this.lastCapture >= RVFC_STALL_MS)
+          : advanced;
+        if (!fresh) return;
         this.lastCapture = now;
         this.lastVideoTime = video.currentTime;
         this.lastPresented = this.presented;
