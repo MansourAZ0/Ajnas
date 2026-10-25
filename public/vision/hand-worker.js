@@ -5,6 +5,7 @@ let delegate = "CPU";
 let initializing = false;
 let createOptions;
 let fileset;
+let reconfiguring = Promise.resolve();
 
 async function create(requested) {
   return self.AjnasMediaPipe.HandLandmarker.createFromOptions(fileset, {
@@ -51,10 +52,18 @@ self.onmessage = async ({ data }) => {
     } catch (error) {
       self.postMessage({ type: "error", message: `Vision initialization failed: ${error instanceof Error ? error.message : error}. Run node scripts/prepare-vision.mjs and check webview support.` });
     }
+  } else if (data.type === "numHands") {
+    // Applied between frames (the main window has at most one frame in flight).
+    if (!landmarker || createOptions.numHands === data.numHands) return;
+    createOptions.numHands = data.numHands;
+    reconfiguring = reconfiguring.then(() => landmarker.setOptions({ numHands: data.numHands })).catch((error) => {
+      self.postMessage({ type: "error", message: `Vision reconfiguration failed: ${error instanceof Error ? error.message : error}` });
+    });
   } else if (data.type === "frame") {
     const { bitmap } = data;
     try {
       if (!landmarker) throw new Error("Vision model is not ready.");
+      await reconfiguring;
       const started = performance.now();
       let result;
       try {
@@ -75,6 +84,7 @@ self.onmessage = async ({ data }) => {
       });
       self.postMessage({ type: "result", frameId: data.frameId, capturedAt: data.capturedAt,
         width: bitmap.width, height: bitmap.height, hands: result.landmarks, handedness, delegate,
+        numHands: createOptions.numHands,
         inferenceMs: performance.now() - started });
     } catch (error) {
       self.postMessage({ type: "error", message: `Vision inference failed: ${error instanceof Error ? error.message : error}` });

@@ -14,7 +14,7 @@ export interface CameraInfo {
 }
 export type CameraState = "off" | "starting" | "running" | "error";
 /** Default longest side of the model input; see docs/VISION.md for measurements. */
-export const DEFAULT_MAX_INPUT_SIZE = 640;
+export const DEFAULT_MAX_INPUT_SIZE = 1280;
 /** First GPU inference slower than this is treated as a hung context. */
 export const GPU_FIRST_FRAME_TIMEOUT_MS = 4000;
 const RVFC_STALL_MS = 250;
@@ -89,6 +89,16 @@ export class CameraSession {
   /** Applies at the next start(): MediaPipe options are fixed per worker. */
   setWorkerOptions(options: WorkerOptions) {
     this.workerOptions = { ...options };
+  }
+
+  /**
+   * Changes the model's maximum hand count without restarting. Sent between
+   * frames; MediaPipe rebuilds its graph, so tracking restarts with detection.
+   */
+  setNumHands(value: number) {
+    const numHands = Math.max(1, Math.round(value));
+    this.workerOptions = { ...this.workerOptions, numHands };
+    this.worker?.postMessage({ type: "numHands", numHands });
   }
 
   /** Frames per second, 1–30; 0 (default) = as fast as the worker returns. */

@@ -45,6 +45,8 @@ export interface VisionObservation {
   /** Same order as hands; null when the model gave no label. */
   handedness: (Handedness | null)[];
   delegate: Delegate;
+  /** Maximum hand count the model ran with for this frame. */
+  numHands?: number;
 }
 export interface PositionCandidate extends ProjectedPosition {
   handIndex: number;
@@ -70,4 +72,5 @@ export type WorkerReply =
       hands: Landmark[][];
       handedness?: (Handedness | null)[];
       delegate?: Delegate;
+      numHands?: number;
     };
