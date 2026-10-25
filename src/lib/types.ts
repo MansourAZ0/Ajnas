@@ -28,6 +28,10 @@ export interface Settings {
     pitchSpace: "player" | "sounding";
     windowS: number;
     intervalS: number;
+    /** Accepted intonation error in cents (= % of a semitone). */
+    toleranceCents: number;
+    /** Instrument tuning offset in cents; null = estimate automatically. */
+    tuningOffsetCents: number | null;
   };
   visuals: "full" | "reduced" | "off";
   showDiagnostics: boolean;
@@ -75,6 +79,8 @@ export interface Analysis {
     contradicting: Evidence[];
   }[];
   possibleModulation: boolean;
+  /** Tuning offset (cents) removed before scoring. */
+  tuningOffsetCents?: number;
 }
 export interface Evidence {
   kind: string;

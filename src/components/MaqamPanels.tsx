@@ -336,11 +336,54 @@ export const MaqamLibrary = memo(function MaqamLibrary({
               ))}
             </select>
           </label>
+          <label className="field">
+            {tr("Accepted intonation error", "هامش الخطأ المقبول في الضبط")}
+            <select
+              disabled={busy}
+              value={settings.maqam.toleranceCents}
+              onChange={(e) =>
+                onSave({
+                  ...settings,
+                  maqam: {
+                    ...settings.maqam,
+                    toleranceCents: Number(e.target.value),
+                  },
+                })
+              }
+            >
+              {[15, 20, 25, 30, 35, 40, 45].map((c) => (
+                <option key={c} value={c}>
+                  ±{c} {tr("cents", "سنت")} (±{c}%{" "}
+                  {tr("of a semitone", "من نصف التون")})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              disabled={busy}
+              checked={settings.maqam.tuningOffsetCents === null}
+              onChange={(e) =>
+                onSave({
+                  ...settings,
+                  maqam: {
+                    ...settings.maqam,
+                    tuningOffsetCents: e.target.checked ? null : 0,
+                  },
+                })
+              }
+            />
+            {tr(
+              "Correct for the instrument's overall tuning",
+              "تعويض ضبط الآلة العام",
+            )}
+          </label>
         </div>
         <p className="muted small">
           {tr(
-            "A rolling 25-second window, updated every 5 seconds. Evidence includes scale fit, resting tones, ajnas, and characteristic phrases from your dataset. Scores are heuristic, not statistical probabilities.",
-            "نافذة متحركة مدتها ٢٥ ثانية، تُحدّث كل ٥ ثوانٍ. تشمل الأدلة توافق السلم ونغمات الركوز والأجناس والعبارات من بياناتك. النتائج تقريبية وليست احتمالات إحصائية.",
+            `A rolling ${settings.maqam.windowS}-second window, updated every ${settings.maqam.intervalS} seconds. Evidence includes scale fit, resting tones, ajnas, and characteristic phrases from your dataset. Fingers and strings are never exact: a note within the accepted error of a scale degree counts as that degree (cents are hundredths of a semitone, so ±30 cents is ±30% of a semitone), and the instrument's overall tuning offset is estimated and removed. Scores are heuristic, not statistical probabilities.`,
+            `نافذة متحركة مدتها ${settings.maqam.windowS} ثانية، تُحدّث كل ${settings.maqam.intervalS} ثوانٍ. تشمل الأدلة توافق السلم ونغمات الركوز والأجناس والعبارات من بياناتك. الأصابع والأوتار ليست دقيقة تمامًا: النغمة القريبة من درجة السلم ضمن هامش الخطأ المقبول تُحسب لتلك الدرجة (السنت جزء من مئة من نصف التون، فـ ±٣٠ سنتًا تعني ±٣٠٪ من نصف التون)، ويُقدَّر انحراف ضبط الآلة العام ويُزال. النتائج تقريبية وليست احتمالات إحصائية.`,
           )}
         </p>
       </section>
