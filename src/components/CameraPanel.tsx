@@ -33,6 +33,7 @@ import {
   type HandSide,
 } from "../vision/handSelection";
 import { HandCountPolicy } from "../vision/handCount";
+import { HandRoleLearner } from "../vision/handRole";
 import { LandmarkSmoother } from "../vision/smoothing";
 import type {
   AudioEvidence,
@@ -65,9 +66,10 @@ export interface CameraPanelProps {
   overlay?: ReactNode;
   /**
    * Initial fretting (note-stopping) hand when the user has not chosen one in
-   * the panel: "left" for a right-handed player (default).
+   * the panel. "auto" (default) learns it from the risha grip, which also
+   * copes with mirrored images and left-handed players.
    */
-  frettingHand?: HandSide;
+  frettingHand?: FrettingSetting;
   advanced?: AdvancedVisionOptions;
 }
 
@@ -79,16 +81,21 @@ interface Tracked {
   hand: Landmark[] | null;
 }
 
-const FRETTING_HAND_KEY = "ajnas.vision.frettingHand";
+/** "auto": learn which detected hand frets; otherwise the player's hand. */
+export type FrettingSetting = "auto" | HandSide;
+// v2: "auto" became the default; earlier stored choices were mostly the old default.
+const FRETTING_HAND_KEY = "ajnas.vision.frettingHand.v2";
 /** Fingertips drawn as the white dots: thumb plus the four fretting fingers. */
 const DRAWN_TIPS = [4, ...FRETTING_TIPS];
 const MAX_DRAW_AGE_MS = 300;
 const RATES = [0, 30, 20, 15, 10, 5, 2];
 
-function savedFrettingHand(fallback: HandSide): HandSide {
+function savedFrettingHand(fallback: FrettingSetting): FrettingSetting {
   try {
     const value = localStorage.getItem(FRETTING_HAND_KEY);
-    return value === "left" || value === "right" ? value : fallback;
+    return value === "auto" || value === "left" || value === "right"
+      ? value
+      : fallback;
   } catch {
     return fallback;
   }
@@ -100,7 +107,7 @@ export function CameraPanel({
   fingerboardLengthMm,
   courses,
   overlay,
-  frettingHand: initialFrettingHand = "left",
+  frettingHand: initialFrettingHand = "auto",
   advanced,
 }: CameraPanelProps) {
   const text = (en: string, ar: string) => (arabic ? ar : en);
@@ -117,7 +124,7 @@ export function CameraPanel({
   /** Non-null while the pipeline runs on a local test video instead of the camera. */
   const [testFile, setTestFile] = useState<string | null>(null);
   const [mirrored, setMirrored] = useState(false);
-  const [frettingHand, setFrettingHand] = useState<HandSide>(() =>
+  const [frettingHand, setFrettingHand] = useState<FrettingSetting>(() =>
     savedFrettingHand(initialFrettingHand),
   );
   /** 0 = as fast as the model returns results. */
@@ -136,6 +143,7 @@ export function CameraPanel({
   const selector = useRef(new FrettingHandSelector());
   const smoother = useRef(new LandmarkSmoother());
   const handCount = useRef(new HandCountPolicy());
+  const roles = useRef(new HandRoleLearner());
   const smoothing = advanced?.smoothing ?? true;
   /** Values the worker callback and draw loop need, without re-subscribing. */
   const live = useRef({
@@ -376,6 +384,7 @@ export function CameraPanel({
     setSnapshot(null);
     selector.current.reset();
     smoother.current.reset();
+    roles.current.reset();
   };
 
   const stop = () => {
@@ -409,16 +418,32 @@ export function CameraPanel({
         if (!mounted.current || generation !== uiGeneration.current) return;
         // Per-result work stays outside React: select, smooth, publish to a ref.
         const values = live.current;
+        const aspect = result.width / result.height;
+        const auto = values.frettingHand === "auto";
+        if (auto)
+          roles.current.observe(result.hands, result.handedness, aspect);
         const selection = selector.current.select(
           result.hands,
           result.handedness,
           result.capturedAt,
-          {
-            frettingHand: values.frettingHand,
-            mirrored: values.mirrored,
-            board: values.board,
-            aspect: result.width / result.height,
-          },
+          auto
+            ? {
+                // The learned label of the fretting hand, expressed as "left
+                // hand, possibly mirrored"; the mirror checkbox is the prior.
+                frettingHand: "left",
+                mirrored:
+                  roles.current.frettingLabel(
+                    values.mirrored ? "Right" : "Left",
+                  ) === "Right",
+                board: values.board,
+                aspect,
+              }
+            : {
+                frettingHand: values.frettingHand as HandSide,
+                mirrored: values.mirrored,
+                board: values.board,
+                aspect,
+              },
         );
         const previous = latest.current?.selection;
         let hand: Landmark[] | null = null;
@@ -438,6 +463,8 @@ export function CameraPanel({
             selection,
             result.hands.length,
             result.capturedAt,
+            // Learning needs both hands in view; calibration selects by itself.
+            auto && !values.board && !roles.current.confident,
           );
           if (numHands !== requested) {
             requested = numHands;
@@ -662,7 +689,12 @@ export function CameraPanel({
           <select
             value={frettingHand}
             onChange={(e) => {
-              const value = e.target.value === "right" ? "right" : "left";
+              const value: FrettingSetting =
+                e.target.value === "right"
+                  ? "right"
+                  : e.target.value === "left"
+                    ? "left"
+                    : "auto";
               setFrettingHand(value);
               try {
                 localStorage.setItem(FRETTING_HAND_KEY, value);
@@ -671,6 +703,12 @@ export function CameraPanel({
               }
             }}
           >
+            <option value="auto">
+              {text(
+                "Automatic (from the risha grip)",
+                "تلقائي (من طريقة مسك الريشة)",
+              )}
+            </option>
             <option value="left">
               {text("Left (right-handed player)", "اليسرى (عازف أيمن)")}
             </option>

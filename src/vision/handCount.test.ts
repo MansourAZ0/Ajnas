@@ -55,4 +55,15 @@ describe("adaptive MediaPipe hand count", () => {
     lockWrong();
     expect(searchUntilReturn()).toBeLessThan(1100);
   });
+  it("searches with two hands while asked to, then returns after the minimum search", () => {
+    const policy = new HandCountPolicy();
+    let at = 0;
+    for (let i = 0; i < 10; i++)
+      expect(policy.update(found, 1, (at += 33), true)).toBe(2);
+    let back = at;
+    while (policy.update(found, 2, (at += 33)) === 2);
+    back = at - back;
+    expect(back).toBeGreaterThanOrEqual(1000);
+    expect(back).toBeLessThan(1100);
+  });
 });

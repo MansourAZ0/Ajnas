@@ -16,8 +16,11 @@ runs independently. Only the **fretting (note-stopping) hand** is drawn and used
 1. **Calibrated:** the hand with at least two of its four fretting fingertips
    over the marked fingerboard (slightly widened). The plucking hand works beyond
    the fingerboard end, so it is rejected regardless of labels.
-2. **Uncalibrated:** the hand whose MediaPipe handedness matches the **Fretting
-   hand** setting (left by default, i.e. a right-handed player; saved locally).
+2. **Uncalibrated:** the hand whose MediaPipe handedness label belongs to the
+   fretting hand. With the **Fretting hand** setting on **Automatic** (default,
+   saved locally) that label is learned from the risha grip, see below;
+   **Left**/**Right** fix it for a right-/left-handed player on an unmirrored
+   image.
 3. **Tracking:** a hand whose palm stays within 12% of the image height of the
    previous selection (within 400 ms) is continued through a brief mislabel or a
    frame where both hands get the same label. Leaving the tracked hand for the
@@ -34,6 +37,30 @@ labelled the neck hand "Right" in 458/469. Labels are therefore taken literally.
 For a mirrored test video, tick **Video is mirrored** (shown only for files) or
 choose the other fretting hand. Both hands got the same label in 0–4% of
 two-hand frames; tracking covers these.
+
+**Automatic fretting hand (`src/vision/handRole.ts`).** A fixed label mapping
+fails whenever the image is mirrored (selfie recordings, some virtual or phone
+cameras) or the player is left-handed: on the neck-left recording above the
+default put the dots on the plucking hand. The plucking hand holds the risha
+between thumb and index, the fretting hand's thumb sits behind the neck. The
+thumb-tip-to-index distance in palm lengths separates them (all 21 landmarks
+re-extracted at 5 fps from the six test clips, 2026-10-26):
+
+| | p10 | p50 | p90 |
+| --- | --- | --- | --- |
+| Fretting hand | 0.18 | 0.47 | 1.06 |
+| Plucking hand | 0.08 | 0.17 | 0.23 |
+
+Comparing the two hands per frame picks the fretting hand in 79–100% of frames
+per clip, too noisy alone but mirror-independent; labels are reliable per frame
+but their meaning is unknown. So pinch comparisons vote (with exponential
+forgetting) on which label is the fretting hand, and selection then uses the
+labels. Lone hands vote at half weight only with a clear grip (≤ 0.12 or
+≥ 0.45; 94% correct). Until the vote is confident (|evidence| ≥ 3, about 1–2 s)
+the worker runs with two hands so both grips are visible. Replaying the
+extracted landmarks through the TypeScript selector: fretting hand selected in
+698 of 718 measurable two-hand frames, plucking hand in 2, none in 18; on the
+mirrored clip 213/216 with no plucking-hand frames (previously almost all).
 
 `src/vision/handCount.ts` adapts MediaPipe's `numHands`: tracking one hand is
 about twice as fast as two, but the model may lock onto the plucking hand. The

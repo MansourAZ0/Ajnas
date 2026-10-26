@@ -49,9 +49,23 @@ export class HandCountPolicy {
     this.searchMs = this.tuning.minSearchMs;
   }
 
-  /** Feed every result; returns the numHands to use for the next frames. */
-  update(selection: HandSelection, handsSeen: number, at: number): number {
-    if (this.current === 1) {
+  /**
+   * Feed every result; returns the numHands to use for the next frames.
+   * `searching` forces two hands, e.g. while the fretting hand's label is
+   * still being learned; the normal minimum search time follows.
+   */
+  update(
+    selection: HandSelection,
+    handsSeen: number,
+    at: number,
+    searching = false,
+  ): number {
+    if (searching) {
+      this.current = 2;
+      this.since = at;
+      this.wrong = 0;
+      this.confirmed = 0;
+    } else if (this.current === 1) {
       this.wrong =
         handsSeen > 0 && selection.index === null ? this.wrong + 1 : 0;
       if (this.wrong >= this.tuning.wrongFrames) {
