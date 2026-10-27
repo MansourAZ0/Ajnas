@@ -12,7 +12,7 @@
  *
  * Query parameters: `mock` (required), `lang=ar` (Arabic settings and note
  * script), `maqam=off`, `dataset=none`, `analysisMs=<ms>` (default 5000),
- * `diagnostics`.
+ * `diagnostics`, `zand=classic` (plain fingerboard map).
  */
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import type { Channel } from "@tauri-apps/api/core";
@@ -68,6 +68,8 @@ export async function installMockTauri() {
   let settings: Settings = structuredClone(
     fixtures[arabic ? "arabic" : "latin"].settings,
   );
+  // Fixtures predate the zand settings; fill the Rust default.
+  settings.zand ??= { animated: query.get("zand") !== "classic" };
   if (query.get("maqam") === "off") settings.maqam.enabled = false;
   if (query.has("diagnostics")) settings.showDiagnostics = true;
   let dataset: Dataset | null =

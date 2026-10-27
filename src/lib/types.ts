@@ -34,6 +34,11 @@ export interface Settings {
     tuningOffsetCents: number | null;
   };
   visuals: "full" | "reduced" | "off";
+  /** The drawn oud neck (zand, زند). */
+  zand: {
+    /** Animated neck instead of the plain fingerboard map. */
+    animated: boolean;
+  };
   showDiagnostics: boolean;
 }
 export interface Position {

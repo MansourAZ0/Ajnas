@@ -72,6 +72,20 @@ pub enum Visuals {
     Off,
 }
 
+/// The drawn oud neck (zand, زند). Optional; the plain map remains available.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ZandSettings {
+    /// Animated neck instead of the plain fingerboard map.
+    pub animated: bool,
+}
+
+impl Default for ZandSettings {
+    fn default() -> Self {
+        Self { animated: true }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -87,6 +101,7 @@ pub struct Settings {
     pub position_offset_mm: f64,
     pub maqam: MaqamSettings,
     pub visuals: Visuals,
+    pub zand: ZandSettings,
     pub show_diagnostics: bool,
 }
 
@@ -104,6 +119,7 @@ impl Default for Settings {
             position_offset_mm: 0.0,
             maqam: MaqamSettings::default(),
             visuals: Visuals::Full,
+            zand: ZandSettings::default(),
             show_diagnostics: false,
         }
     }
@@ -226,6 +242,10 @@ mod tests {
         assert_eq!(s.maqam.window_s, 30.0);
         assert_eq!(s.maqam.tolerance_cents, 30.0);
         assert_eq!(s.maqam.tuning_offset_cents, None);
+        assert!(
+            s.zand.animated,
+            "files without zand settings get the animated neck"
+        );
         assert_eq!(
             s.notation.note_script,
             naghma_core::notation::Script::Arabic

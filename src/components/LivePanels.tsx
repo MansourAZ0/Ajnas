@@ -15,6 +15,7 @@ import type {
   Target,
 } from "../lib/types";
 import type { AudioEvidence } from "../vision/types";
+import { AnimatedZand } from "./AnimatedZand";
 import { CameraPanel } from "./CameraPanel";
 import { Fingerboard } from "./Fingerboard";
 
@@ -198,20 +199,33 @@ export const CameraStage = memo(function CameraStage({
   );
 });
 
-/** Fingerboard whose acoustic highlight changes only when the note does. */
-export const LiveFingerboard = memo(function LiveFingerboard({
-  store,
-  board,
-  settings,
-  selected,
-  onSelect,
-}: {
+interface FingerboardProps {
   store: PerformanceStore;
   board: Board;
   settings: Settings;
   selected: Target | null;
   onSelect: (target: Target) => void;
-}) {
+}
+
+/** The animated zand, or the plain map when the user turned it off. */
+export const LiveFingerboard = memo(function LiveFingerboard(
+  props: FingerboardProps,
+) {
+  return props.settings.zand.animated ? (
+    <AnimatedZand {...props} />
+  ) : (
+    <PlainFingerboard {...props} />
+  );
+});
+
+/** Fingerboard whose acoustic highlight changes only when the note does. */
+function PlainFingerboard({
+  store,
+  board,
+  settings,
+  selected,
+  onSelect,
+}: FingerboardProps) {
   const activePitch = useLive(
     store,
     (f) => {
@@ -232,7 +246,7 @@ export const LiveFingerboard = memo(function LiveFingerboard({
       activePitch={activePitch}
     />
   );
-});
+}
 
 export const PracticeCoach = memo(function PracticeCoach({
   store,

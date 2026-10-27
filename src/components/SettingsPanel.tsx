@@ -252,6 +252,18 @@ export function SettingsPanel({
           <label className="check">
             <input
               type="checkbox"
+              checked={draft.zand.animated}
+              onChange={(e) =>
+                set("zand", { ...draft.zand, animated: e.target.checked })
+              }
+            />
+            {ar
+              ? "زند العود المتحرك (بدلاً من الخريطة البسيطة)"
+              : "Animated oud neck (zand) instead of the plain map"}
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
               checked={draft.arabicDigits}
               onChange={(e) => set("arabicDigits", e.target.checked)}
             />
