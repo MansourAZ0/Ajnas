@@ -78,11 +78,16 @@ pub enum Visuals {
 pub struct ZandSettings {
     /// Animated neck instead of the plain fingerboard map.
     pub animated: bool,
+    /// Draw the note positions on the calibrated camera image.
+    pub overlay: bool,
 }
 
 impl Default for ZandSettings {
     fn default() -> Self {
-        Self { animated: true }
+        Self {
+            animated: true,
+            overlay: true,
+        }
     }
 }
 
@@ -246,6 +251,7 @@ mod tests {
             s.zand.animated,
             "files without zand settings get the animated neck"
         );
+        assert!(s.zand.overlay);
         assert_eq!(
             s.notation.note_script,
             naghma_core::notation::Script::Arabic

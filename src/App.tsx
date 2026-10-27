@@ -8,6 +8,7 @@ import {
 } from "react";
 import { Channel, invoke, isTauri } from "@tauri-apps/api/core";
 import { PerformanceStore } from "./lib/live";
+import { zandMarks } from "./lib/zand";
 import { recordAnalysis, type MaqamSighting } from "./lib/maqamLog";
 import type {
   Analysis,
@@ -382,6 +383,17 @@ export default function App() {
       ),
     [store, settings, dataset, running, simulation, maqamLog, selected],
   );
+  const zandOverlay = useMemo(
+    () =>
+      board && settings?.zand.overlay
+        ? {
+            marks: zandMarks(board),
+            selectedId,
+            accidentalStyle: settings.accidentalStyle,
+          }
+        : null,
+    [board, selectedId, settings?.zand.overlay, settings?.accidentalStyle],
+  );
   const fingerboardLengthMm = board?.fingerboardLengthMm;
   const courses = board?.courses.length;
 
@@ -479,6 +491,7 @@ export default function App() {
               fingerboardLengthMm={fingerboardLengthMm}
               courses={courses}
               overlay={hud}
+              zand={zandOverlay}
             />
           ) : (
             <section className="panel camera-placeholder">

@@ -178,6 +178,29 @@ there is no automatic instrument-motion detector yet. Recalibrate deletes the
 old saved calibration immediately so an incomplete replacement cannot silently
 reuse old geometry after restart.
 
+## Zand overlay
+
+`src/vision/zandOverlay.ts` projects the zand's note positions (`src/lib/zand.ts`)
+back onto the image. It uses the homography from the board square to the marked
+corners, which is the inverse of fingertip projection, and a unit test checks
+this round trip. Shapes are recomputed only when the calibration or the shown
+notes change, and the overlay canvas draws them with the existing per-result
+redraw:
+
+- course centrelines;
+- a ±10-cent quadrilateral across each stopped position, 0.6 course spacings
+  tall;
+- a ring on each position of the selected target;
+- HTML labels using `NoteName`, so quarter-tone glyphs and Arabic render as
+  elsewhere. Labels show the target's positions, or the tonic's when nothing is
+  selected; open strings get none.
+
+The calibration outline is hidden while the overlay is shown, because the
+virtual strings already show it. `CameraPanel` takes this as the optional `zand`
+prop (`marks`, `selectedId`, `accidentalStyle`); `null` or no prop draws
+nothing. Accuracy is that of the calibration: the even course spacing and the
+marked length directly place each zone.
+
 ## Timestamping and conservative fusion
 
 The main window stamps capture before creating each bitmap. On worker receipt,

@@ -18,5 +18,8 @@
 - Camera: the fingertip at the heard note's position is drawn in its
   intonation colour with the note name (after calibration, when audio and
   vision agree); the other fingertip dots dim.
+- Zand on the camera image: after calibration, virtual strings, ±10-cent
+  zones for the shown notes, the selected target's ring and note names are
+  drawn on the real neck. Optional (Settings → Display).
 - Accessible README and practice guide, credits, privacy/contribution/release guides,
   audit, source exporter, secret/dependency checks and dependency update configuration.
