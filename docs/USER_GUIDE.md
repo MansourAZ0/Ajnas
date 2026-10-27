@@ -62,6 +62,11 @@ always labelled, both in a banner and inside the camera view.
    strings do not lie on the real ones, recalibrate. The zones are only as
    accurate as the four marked corners and the measured length. Turn this off
    in Settings → Display.
+7. **Follow the oud** (camera panel, on by default) keeps the calibration on
+   the neck when you or the camera move. Calibrate with the oud in view. If
+   the panel says the neck is lost, bring the oud back into view or
+   recalibrate. Positions pause while it is lost, rather than being drawn in
+   the wrong place.
 
 For browser-only UI work, `npm run dev` and open `/?mock` to use a dev-only
 Tauri IPC mock (`src/dev/mockTauri.ts`; options `lang=ar`, `maqam=off`,

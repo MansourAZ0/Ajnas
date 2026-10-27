@@ -34,6 +34,8 @@ import {
 } from "../vision/handSelection";
 import { HandCountPolicy } from "../vision/handCount";
 import { HandRoleLearner } from "../vision/handRole";
+import { NeckFollower, type NeckUpdate } from "../vision/neckFollower";
+import { handBox, type Box } from "../vision/neckTracker";
 import { LandmarkSmoother } from "../vision/smoothing";
 import { NoteName, type AccidentalStyle } from "@naghma/ui";
 import { INTONATION_COLOURS, intonation, type ZandMark } from "../lib/zand";
@@ -107,10 +109,28 @@ interface Tracked {
 export type FrettingSetting = "auto" | HandSide;
 // v2: "auto" became the default; earlier stored choices were mostly the old default.
 const FRETTING_HAND_KEY = "ajnas.vision.frettingHand.v2";
+const FOLLOW_NECK_KEY = "ajnas.vision.followNeck.v1";
+/** Followed corners are written back to the saved calibration at most this often. */
+const FOLLOW_SAVE_MS = 3000;
+/** ...and only after moving this far (normalised to the image width). */
+const FOLLOW_SAVE_MOVE = 0.002;
 /** Fingertips drawn as the white dots: thumb plus the four fretting fingers. */
 const DRAWN_TIPS = [4, ...FRETTING_TIPS];
 const MAX_DRAW_AGE_MS = 300;
 const RATES = [0, 30, 20, 15, 10, 5, 2];
+
+function savedFollowNeck(): boolean {
+  try {
+    return localStorage.getItem(FOLLOW_NECK_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+/** Hands are excluded from neck tracking: they move on their own. */
+function handBoxes(hands: readonly Landmark[][]): Box[] {
+  return hands.map((hand) => handBox(hand)).filter((b): b is Box => !!b);
+}
 
 function savedFrettingHand(fallback: FrettingSetting): FrettingSetting {
   try {
@@ -163,6 +183,13 @@ export function CameraPanel({
   const [editing, setEditing] = useState(false);
   const [orientationConfirmed, setOrientationConfirmed] = useState(false);
   const [calibrationError, setCalibrationError] = useState("");
+  /** Keep the calibration on the neck as the oud or camera moves. */
+  const [follow, setFollow] = useState(savedFollowNeck);
+  const follower = useRef<NeckFollower | null>(null);
+  /** Latest neck-tracking update (worker rate); copied to `neck` at 10 Hz. */
+  const neckLatest = useRef<NeckUpdate | null>(null);
+  const [neck, setNeck] = useState<NeckUpdate | null>(null);
+  const [neckError, setNeckError] = useState("");
   const selector = useRef(new FrettingHandSelector());
   const smoother = useRef(new LandmarkSmoother());
   const handCount = useRef(new HandCountPolicy());
@@ -174,7 +201,7 @@ export function CameraPanel({
     frettingHand,
     mirrored,
     smoothing,
-    corners: [] as Point[],
+    corners: [] as readonly Point[],
     calibrated: false,
     version: 0,
     highlight: null as Highlight | null,
@@ -227,6 +254,7 @@ export function CameraPanel({
       }
       setNow(at);
       setSnapshot(current);
+      setNeck(neckLatest.current);
     };
     tick();
     const timer = setInterval(tick, 100);
@@ -259,22 +287,104 @@ export function CameraPanel({
     calibration.courses === courses &&
     !editing
   );
-  const map = useMemo(
-    () => (calibration ? fingerboardHomography(calibration.corners) : null),
-    [calibration],
+
+  // Neck tracking: start from the saved calibration on the current frame,
+  // then carry its corners with the oud. Restarts on a new calibration.
+  const following = follow && calibrated && state === "running";
+  useEffect(() => {
+    const element = video.current;
+    if (!following || !calibration || !element) return;
+    const current = new NeckFollower(
+      element,
+      (update) => {
+        neckLatest.current = update;
+      },
+      (message) => setNeckError(message),
+    );
+    current.setReference(
+      calibration.corners,
+      handBoxes(latest.current?.observation.hands ?? []),
+    );
+    current.start();
+    follower.current = current;
+    setNeckError("");
+    return () => {
+      current.stop();
+      follower.current = null;
+      neckLatest.current = null;
+      setNeck(null);
+    };
+  }, [following, calibration]);
+
+  const lost = following && neck?.status === "lost";
+  const followed =
+    following && neck?.status === "tracking" ? neck.corners : null;
+  // Keyed by value: every tracker update is a new array, even when still.
+  const cornerKey = JSON.stringify(followed ?? calibration?.corners ?? null);
+  const activeCorners = useMemo<Quadrilateral | null>(
+    () => JSON.parse(cornerKey),
+    [cornerKey],
   );
+  // Followed corners may briefly fold into an invalid shape; then none apply.
+  const map = useMemo(() => {
+    if (!activeCorners) return null;
+    try {
+      return fingerboardHomography(activeCorners);
+    } catch {
+      return null;
+    }
+  }, [activeCorners]);
+  /** Calibrated, and the calibration still fits the neck. */
+  const usable = calibrated && !lost && !!map;
   const zandShapes = useMemo(
     () =>
-      zand && calibration && calibrated
+      zand && activeCorners && usable
         ? zandOverlayShapes(
-            imageFromBoard(calibration.corners),
+            imageFromBoard(activeCorners),
             zand.marks,
             courses,
             zand.selectedId,
           )
         : null,
-    [zand, calibration, calibrated, courses],
+    [zand, activeCorners, usable, courses],
   );
+
+  // Write followed corners back, so the next session starts where the neck is.
+  const lastFollowSave = useRef(0);
+  useEffect(() => {
+    if (
+      !calibration ||
+      !following ||
+      neck?.status !== "tracking" ||
+      !neck.corners ||
+      neck.inliers < 20
+    )
+      return;
+    const at = performance.now();
+    if (at - lastFollowSave.current < FOLLOW_SAVE_MS) return;
+    const shift = Math.max(
+      ...neck.corners.map((p, i) =>
+        Math.hypot(
+          p.x - calibration.corners[i].x,
+          p.y - calibration.corners[i].y,
+        ),
+      ),
+    );
+    if (shift < FOLLOW_SAVE_MOVE) return;
+    lastFollowSave.current = at;
+    try {
+      localStorage.setItem(
+        calibrationKey(calibration.cameraId),
+        JSON.stringify({
+          ...calibration,
+          corners: neck.corners,
+          savedAt: Date.now(),
+        }),
+      );
+    } catch {
+      /* Following still works for this session. */
+    }
+  }, [neck, calibration, following]);
   useEffect(() => {
     live.current.zand = zandShapes;
     live.current.version++;
@@ -282,15 +392,21 @@ export function CameraPanel({
 
   useEffect(() => {
     const values = live.current;
-    values.board = calibrated ? map : null;
     values.frettingHand = frettingHand;
     values.mirrored = mirrored;
     values.smoothing = smoothing;
-    values.corners = corners;
-    values.calibrated = calibrated;
     values.version++;
     selector.current.reset();
-  }, [map, calibrated, frettingHand, mirrored, smoothing, corners]);
+  }, [calibrated, frettingHand, mirrored, smoothing]);
+  // Following moves the board several times a second: no selector reset.
+  useEffect(() => {
+    const values = live.current;
+    values.board = usable ? map : null;
+    values.corners =
+      !editing && usable && activeCorners ? activeCorners : corners;
+    values.calibrated = usable;
+    values.version++;
+  }, [map, usable, editing, corners, activeCorners]);
 
   // Overlay: drawn on animation frames, only when its content changed. The
   // canvas backing store is resized only when the video size changes.
@@ -393,8 +509,7 @@ export function CameraPanel({
       ? observation.hands[selection.index]
       : null;
   const candidates = useMemo(() => {
-    if (!map || !calibrated || !selectedHand || selection?.index == null)
-      return [];
+    if (!map || !usable || !selectedHand || selection?.index == null) return [];
     const positions: PositionCandidate[] = [];
     // Raw (unsmoothed) landmarks: evidence keeps its capture timestamp.
     // Thumb is drawn, but excluded from fretting-course evidence.
@@ -410,7 +525,7 @@ export function CameraPanel({
         });
     }
     return positions;
-  }, [map, calibrated, selectedHand, selection, fingerboardLengthMm, courses]);
+  }, [map, usable, selectedHand, selection, fingerboardLengthMm, courses]);
 
   const fusion = fusePosition(
     audio,
@@ -418,7 +533,7 @@ export function CameraPanel({
       ? {
           capturedAt: observation.capturedAt,
           receivedAt: observation.receivedAt,
-          calibrated,
+          calibrated: usable,
           // Only the selected fretting hand is evidence; none selected = no hand.
           handCount: selectedHand ? 1 : 0,
           candidates,
@@ -519,6 +634,7 @@ export function CameraPanel({
             : raw;
         }
         latest.current = { observation: result, selection, hand };
+        follower.current?.setExclude(handBoxes(result.hands));
         if (adaptive) {
           const numHands = handCount.current.update(
             selection,
@@ -874,10 +990,15 @@ export function CameraPanel({
         <>
           <p>
             {calibrated
-              ? text(
-                  "Calibration saved. Recalibrate whenever the camera or oud moves.",
-                  "المعايرة محفوظة. أعدها عند تحريك الكاميرا أو العود.",
-                )
+              ? follow
+                ? text(
+                    "Calibration saved. It follows the neck; recalibrate if the virtual strings drift off the real ones.",
+                    "المعايرة محفوظة وتتابع الزند؛ أعدها إذا ابتعدت الأوتار الافتراضية عن الحقيقية.",
+                  )
+                : text(
+                    "Calibration saved. Recalibrate whenever the camera or oud moves.",
+                    "المعايرة محفوظة. أعدها عند تحريك الكاميرا أو العود.",
+                  )
               : text(
                   "Uncalibrated. Mark the outermost course centerlines at the nut and fingerboard end.",
                   "لم تُعاير بعد. حدّد خطّي الوترين الخارجيين عند الأنف ونهاية لوحة الأصابع.",
@@ -891,6 +1012,48 @@ export function CameraPanel({
             : {fingerboardLengthMm} mm · {courses}{" "}
             {text("courses", "أوتار مزدوجة")}
           </p>
+          {calibrated && (
+            <p role="status">
+              {!follow
+                ? text(
+                    "Not following the neck: the calibration is fixed to the image.",
+                    "لا يُتابَع الزند: المعايرة ثابتة على الصورة.",
+                  )
+                : lost
+                  ? text(
+                      "Lost the oud's neck. Bring it back into view where it was, or recalibrate. Positions are paused.",
+                      "فُقد زند العود. أعده إلى مكانه في الصورة أو أعد المعايرة. المواضع متوقفة مؤقتاً.",
+                    )
+                  : neck
+                    ? text(
+                        "Following the neck as the oud moves.",
+                        "يتابع الزند مع حركة العود.",
+                      )
+                    : text("Finding the neck…", "جارٍ إيجاد الزند…")}
+            </p>
+          )}
+          {neckError && <p role="alert">{neckError}</p>}
+          <label className="field">
+            <input
+              type="checkbox"
+              checked={follow}
+              onChange={(e) => {
+                setFollow(e.target.checked);
+                try {
+                  localStorage.setItem(
+                    FOLLOW_NECK_KEY,
+                    e.target.checked ? "on" : "off",
+                  );
+                } catch {
+                  /* The choice still applies for this session. */
+                }
+              }}
+            />
+            {text(
+              "Follow the oud when it or the camera moves (keeps the calibration on the neck)",
+              "تابع العود عند تحريكه أو تحريك الكاميرا (تبقى المعايرة على الزند)",
+            )}
+          </label>
           <button className="button" onClick={calibrate}>
             {text(
               "Recalibrate / mark four corners",
@@ -966,6 +1129,15 @@ export function CameraPanel({
                   : selection.reason === "handedness"
                     ? text("by handedness", "حسب اليد")
                     : text("tracked", "متتبَّعة")}
+              {neck && (
+                <>
+                  {" "}
+                  · {text("neck", "الزند")}:{" "}
+                  {neck.status === "lost" && text("lost", "مفقود") + " "}
+                  {neck.inliers}/{neck.points} ({neck.ms.toFixed(1)} ms,{" "}
+                  {text("moved", "تحرّك")} {(neck.moved * 100).toFixed(1)}%)
+                </>
+              )}
             </p>
           )}
           {fusion.candidate && (

@@ -173,8 +173,8 @@ rectified plane; the method does not resolve individual strings in a pair.
 Calibration stores only corners, camera ID, aspect, instrument geometry, version
 and save time in local storage. It is reused only for the same camera, aspect
 (within 0.5%), length and course count. Raw frames/landmarks are not persisted.
-Storage denial is handled. Moving the camera **or oud** requires recalibration;
-there is no automatic instrument-motion detector yet. Recalibrate deletes the
+Storage denial is handled. With **Follow the oud** off, moving the camera or oud requires
+recalibration; with it on, see "Following the neck" above. Recalibrate deletes the
 old saved calibration immediately so an incomplete replacement cannot silently
 reuse old geometry after restart.
 
@@ -200,6 +200,63 @@ virtual strings already show it. `CameraPanel` takes this as the optional `zand`
 prop (`marks`, `selectedId`, `accidentalStyle`); `null` or no prop draws
 nothing. Accuracy is that of the calibration: the even course spacing and the
 marked length directly place each zone.
+
+## Following the neck
+
+The neck tracker (`src/vision/neckTracker.ts`) keeps a saved calibration on
+the neck when the oud or the camera moves. It runs in a separate module worker
+(`neckWorker.ts`, fed by `neckFollower.ts`) on 480 px greyscale frames, about
+15 per second, one frame in flight, independent of the hand model.
+
+- **Reference.** When following starts, the current frame becomes the
+  reference with the saved corners. Shi–Tomasi corners are taken around the
+  neck: 0.3 of its length beyond the nut and 0.2 beyond the end, and 0.45 of
+  its width either side, covering the pegbox, nut, rosette and body edge. Hand
+  boxes, widened by the tracking window, are excluded.
+- **Brightness.** Each frame is normalised to zero mean and fixed contrast, so
+  auto-exposure or a fade does not break matching. A flat frame, or a
+  reference with fewer than 24 points, is refused and retried on the next
+  frame. This covers a camera that is still exposing.
+- **Matching.** Every frame is matched directly against a keyframe with
+  pyramidal Lucas–Kanade, predicted from the last motion. There is no
+  frame-to-frame chaining, so points on strings cannot creep along them. A new
+  keyframe is taken only when fewer than 45% of the keyframe's points still
+  match.
+- **Motion model.** The fit is a RANSAC similarity transform (shift, rotation,
+  scale), refined by least squares. The points cluster between the hands, and
+  there a full homography extrapolates badly to the corners.
+- **Lost.** After 4 failed frames the neck counts as lost. Positions, fusion
+  and the zand overlay then pause ("uncalibrated"), and the panel says so.
+  Later frames keep trying the keyframe around the last pose.
+- **Noise.** Movement under 0.35 analysis pixels is ignored, so a still oud
+  keeps exactly still corners.
+- **Saving.** Followed corners are written back to the saved calibration at
+  most every 3 s, once they have moved ≥ 0.2% of the width with ≥ 20 agreeing
+  points. The next session therefore starts where the neck was. No frames or
+  points are stored.
+
+"Follow the oud" in the camera panel (on by default, saved locally) turns this
+off.
+
+Measurements (2026-10-27, Apple M2):
+
+- **Speed.** A tracker step on synthetic 480×270 frames took 3.6 ms at the
+  median and 15 ms at most, and the reference took 35 ms. The in-app worker
+  reported 6–12 ms per frame on the Taqasim School clip in headless Chromium.
+- **Accuracy offline.** On that clip, extracted at 15 fps with hand-sized
+  exclusion boxes, the tracked nut corner moved from (1124, 235) to (1082, 188)
+  over 15 s. It was hand-read at about (1120, 240) and (1080, 190) on the
+  1280×720 frames.
+- **In the app.** The overlay stayed on the neck while the oud tilted, with
+  46–57 agreeing points per frame. With following off, the fixed calibration
+  visibly slid off the neck by the end of the clip.
+- **Unit tests** use synthetic warps: shift and rotation, a hand-sized
+  occluder, a brightness change, an unrelated view and recovery. The
+  occluded-nut case keeps the corners within 0.6 px on a 240 px frame.
+
+The tracker cannot tell whether a lost neck has come back somewhere else
+entirely. A wrong saved calibration, for example after the oud moved between
+sessions, reads as lost rather than being corrected; recalibrate then.
 
 ## Timestamping and conservative fusion
 
