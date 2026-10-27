@@ -1,65 +1,104 @@
 # Ajnas · أجناس
 
-A local-first desktop companion for oud practice. Tauri 2, Rust, React and
-TypeScript; audio analysis uses our own YIN implementation through the shared
-libraries. This is an incremental 0.2 application, not a finished music tutor.
+An oud practice companion with a tuner, a fingerboard map, maqam teaching, and
+optional camera tracking—all on one practice page.
 
-## Working features
+Listen to a note, see its Arabic or Latin solfège name, and compare it with a
+practice target. Choose a maqam to explore its written scale and fingerboard
+positions. You can also use a camera to track the fretting hand.
 
-- Native microphone analysis and an explicitly labelled synthetic simulation.
-- Continuous frequency, quarter-tone solfège, cents, periodicity confidence,
-  a melodic trail and acoustic-reactive Canvas graphics.
-- Separate player and sounding names, transposition in four interval units,
-  reference pitch, 12-/24-EDO naming, Latin/Arabic note scripts and RTL interface.
-- Interactive fretless fingerboard, all reachable positions for each note,
-  selected-target intonation comparison and an electronic reference tone.
-- Configurable vibrating length, nut-to-fingerboard-end length and position
-  correction. The six-course tuning is the example Do2–Fa2–La2–Re3–Sol3–Do4.
-- Opt-in sourced illustrations of the eight «صنع بسحرك» maqamat, with 24
-  quarter-tone tonic choices, separately selectable upper-jins routes, spelled
-  scale notes and geometry-derived teaching targets. Saba keeps its documented
-  register rather than repeating an octave pattern.
-- Local import, schema validation and persistence of user-provided maqam JSON.
-  Dataset provenance and provisional/unvalidated warnings remain visible.
-- Opt-in rolling maqam hypotheses with supporting and contradicting evidence.
-  These are heuristic scores, not probabilities or authoritative identifications.
-- Optional local MediaPipe hand tracking in a worker, camera selection, manual
-  perspective calibration and conservative audio/position consistency checks.
-  Vision never changes the acoustic note or claims verified string contact.
+**Early development, not a finished music tutor.** Maqam suggestions and camera
+positions are aids to practice, with important limits described below.
 
-Microphone and camera stay off until started. No audio/video is recorded or
-uploaded. Packaged inference uses local model and WASM assets; there is no runtime
-CDN dependency. Camera calibration and settings are stored locally.
+## What works
 
-## Independent repositories
+- Microphone analysis, quarter-tone names, a cents meter, and recent-note trail.
+- Player names and concert pitch, transposition, and adjustable reference pitch.
+- English/Arabic interface with right-to-left layout.
+- Interactive oud fingerboard, selectable targets, and electronic reference tones.
+- Optional sourced illustrations of eight maqamat, with 24 tonic choices and
+  separate upper-jins routes. Imported JSON can preserve custom intervals.
+- Optional maqam suggestions, with supporting and contradicting evidence.
+- Optional local hand tracking, fretting-hand selection, and manual calibration.
+- Clearly labelled synthetic audio for trying the app without an instrument.
 
-| Repository | Responsibility |
-| --- | --- |
-| [pitchforge-rs](https://github.com/MansourAZ0/pitchforge-rs) | Framework-free pitch DSP |
-| [naghma-core](https://github.com/MansourAZ0/naghma-core) | Theory, instrument geometry, audio engine and shared UI |
-| [watar-tuner](https://github.com/MansourAZ0/watar-tuner) | Standalone tuner product |
-| Ajnas | Companion orchestration, teaching, camera and fusion |
+A quarter-tone is half a semitone. A cent is one hundredth of a semitone.
+The example oud tuning is Do2–Fa2–La2–Re3–Sol3–Do4; instrument dimensions and
+transposition are adjustable.
 
-Ajnas consumes `naghma-core` / `naghma-audio` at **v0.4.0**, and transitively
-`pitchforge` at **v0.1.0**, pinned by Cargo.lock. It does not copy tuner source.
-The shared React package is a file dependency on a sibling checkout; CI checks
-that sibling out at **v0.4.0**. There is no cross-repository Cargo workspace.
+## Run from source
 
-## Run
+Install current stable Rust (the app declares 1.90+), Node 24+, and the
+[Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
+Linux also needs ALSA development headers. macOS is the main development
+platform; Windows still needs validation.
 
-Requirements: Rust 1.90+, Node 24+, the [Tauri system prerequisites](https://v2.tauri.app/start/prerequisites/),
-and access to the private dependency repositories. On Linux install ALSA headers
-in addition to Tauri's dependencies. Clone `naghma-core` next to `Ajnas` and use its
-`v0.4.0` tag for a reproducible UI build.
+Clone both repositories into the same parent folder. Ajnas uses the shared UI
+and Rust libraries from `naghma-core` **v0.5.0**:
 
 ```sh
+git clone --branch v0.5.0 https://github.com/MansourAZ0/naghma-core.git
+git clone https://github.com/MansourAZ0/Ajnas.git
+cd Ajnas
+npm ci --prefix ../naghma-core/packages/naghma-ui
 npm ci
 npm run tauri dev
 ```
 
-`predev` and `prebuild` prepare pinned MediaPipe assets. The first preparation
-requires a build-time model download; its SHA-256 is verified. Later builds can
-reuse the verified model offline. See [docs/VISION.md](docs/VISION.md).
+The first launch preparation downloads a pinned hand-tracking model and verifies
+its SHA-256. Later builds reuse the verified local copy. Inference runs locally;
+there is no runtime model CDN. See [vision setup](docs/VISION.md).
+
+## Your first practice session
+
+1. Choose **Microphone** and **Start listening**, or select **Synthetic simulation**.
+2. In **Settings**, choose the language, note script, reference pitch, and
+   transposition that match your instrument.
+3. Use the **Tuner** tab to check a single sustained note.
+4. In **Library**, choose **Load researched eight**. Open **Teach Me**, select a
+   maqam, tonic and upper-jins route, then click a note to practise its target.
+5. Start the camera only if you want hand tracking. Measure the instrument and
+   calibrate the course centre lines while keeping the camera and oud still.
+
+The camera view can display the live note, transposition, selected-target advice,
+and recent maqam suggestions. Other panels remain available on the same page.
+The [practice guide](docs/USER_GUIDE.md) explains these controls in more detail.
+
+## Privacy
+
+Microphone and camera stay off until started. The app does not record or upload
+audio or video. Settings, imported maqam data and camera calibration are stored
+locally. The build process needs network access for dependencies and the initial
+model download. See [security and privacy](SECURITY.md).
+
+## What the results mean
+
+- **Pitch:** one note at a time. Noise, harmonics and overlapping strings can
+  produce wrong or unstable estimates. Confidence is not a correctness probability.
+- **Maqam:** a heuristic suggestion from recent notes, not an authoritative
+  identification. A scale is only part of a maqam; phrasing and musical movement
+  matter too. The eight examples approximate written notation in 24 equal steps,
+  and still need musician review. See [sources and limits](docs/MAQAMAT.md).
+- **Camera:** landmarks and calibrated positions, not verified finger contact
+  with a string. Occlusion or moving the oud/camera can invalidate the result.
+  Vision never changes the acoustically measured note.
+- **Platforms:** packaged camera inference, physical permissions, latency,
+  accessibility and public distribution still need broader validation.
+
+## How the repositories fit together
+
+| Repository | Role |
+| --- | --- |
+| [pitchforge-rs](https://github.com/MansourAZ0/pitchforge-rs) | Generic pitch estimation. |
+| [naghma-core](https://github.com/MansourAZ0/naghma-core) | Music theory, audio worker, shared React components. |
+| [watar-tuner](https://github.com/MansourAZ0/watar-tuner) | A standalone tuner using the same libraries. |
+| **Ajnas** | Practice, teaching, camera and audio/vision coordination. |
+
+Ajnas consumes the libraries directly; it does not depend on Watar. Rust releases
+are pinned to `naghma-core`/`naghma-audio` **v0.5.0** and `pitchforge` **v0.1.0**
+in `src-tauri/Cargo.lock`. New library fixes need new tags before reaching the app.
+
+## Development
 
 ```sh
 npm run typecheck
@@ -72,80 +111,20 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked
 npm run tauri build -- --bundles app
 ```
 
-On macOS the app bundle includes microphone/camera usage descriptions and capture
-entitlements. On Windows build the normal Tauri targets on Windows (override
-`bundle.targets` as needed). Windows support is not yet validated.
+For browser-only UI development, `npm run dev` with `/?mock` enables a development
+IPC fixture. It is excluded from production builds. See [contributing](CONTRIBUTING.md),
+[existing validation](docs/PROGRESS.md) and the [current audit](docs/AUDIT.md).
 
-For private GitHub dependencies, set a repository Actions secret `DEPS_TOKEN`
-with read access to `naghma-core` and `pitchforge-rs`. The default Actions token
-cannot read other private repositories. CI includes frontend checks and Rust
-checks on macOS and Linux; local passes do not imply remote CI has passed.
+## Credits and license
 
-## Practice
+The pitch layer implements YIN by **Alain de Cheveigné and Hideki Kawahara**.
+[Alessandro Genova's pitch-detection](https://github.com/alesgenova/pitch-detection)
+is acknowledged as related Rust prior work. Arabic solfège, quarter-tones, maqam
+structures and oud geometry are provided by this ecosystem's `naghma-core`.
+Google MediaPipe supplies hand landmarks; Ajnas adds calibration and practice
+integration. See [credits](CREDITS.md) for the scope of each contribution.
 
-Everything lives on one page built around the camera view. The header holds
-the audio source, **Start listening** / **End session** and **Settings** (a
-drawer with instrument, notation and display options). Synthetic simulation is
-always labelled, both in a banner and inside the camera view.
-
-- **Camera view.** Start the camera and calibrate inside the camera panel.
-  Cards along the top edge of the video leave the oud and hand clear: the
-  live note (player or concert per Settings, cents, the other name and input
-  level, dimmed between notes), the current transposition with the La4
-  reference, and the maqamat detected during the last 30 seconds, newest first,
-  marked leading or ambiguous, with their age. A selected teaching target adds
-  a coaching card. Maqam cards are heuristic and show dataset provenance.
-- **Side panel tabs.** *Tuner*: note, cents meter, Hz, periodicity, input
-  level and the melodic trail. *Maqam*: hypotheses with evidence and
-  provenance. *Teach Me*: maqam, tonic, upper-jins route and octave,
-  selected-target coaching and the reference tone. *Library*: load the
-  researched eight, import or remove a dataset, recognition options and the
-  maqam explorer.
-- **Below the camera.** The fretless fingerboard map (always player notation)
-  and, for a selected maqam, its scale and ajnas. Diagnostics appear here when
-  enabled in Settings.
-
-1. Select Microphone and Start listening, or choose Synthetic simulation to
-   check the pipeline without hardware.
-2. Set transposition in Settings to match your instrument. Measured Hz stays
-   unchanged; player notation moves relative to concert pitch.
-3. Pick a note on the fingerboard. Reference tones and selected-target cents
-   keep the original target pitch, including non-equal-tempered intervals in a
-   loaded maqam dataset.
-4. In Library select **Load researched eight**, or import your own sourced
-   JSON, and enable analysis. The bundled Saba, Nahawand, Ajam, Bayati, Sikah,
-   Hijaz, Rast and Kurd illustrations follow MaqamWorld notation and are
-   explicitly provisional 24-EDO approximations. In Teach Me choose the maqam,
-   tonic and upper-jins route. Bayati can be practiced from Re, Sol or La; the
-   interval pattern is transposed with diatonic spelling preserved. Use the
-   separate recognition control to set its tonic. The synthetic fixture
-   remains test-only.
-5. Before camera calibration, measure the instrument dimensions in Settings.
-   Mark outer **course centerlines** at nut and fingerboard end in the on-screen
-   order. Keep the oud and camera stationary, and recalibrate when either moves.
-
-For browser-only UI work, `npm run dev` and open `/?mock` to use a dev-only
-Tauri IPC mock (`src/dev/mockTauri.ts`; options `lang=ar`, `maqam=off`,
-`dataset=none`, `analysisMs=`). It replays fixtures serialized from the Rust
-backend and is excluded from production builds.
-
-The dataset schema and validation rules are documented in
-[naghma-core's maqam module](https://github.com/MansourAZ0/naghma-core/tree/v0.4.0/crates/naghma-core/src/maqam).
-Import is limited to 2 MiB and uses a native file picker. Invalid imports leave
-the current dataset intact.
-
-See [docs/MAQAMAT.md](docs/MAQAMAT.md) for source choices, alternatives and
-recognition limits. Written scales do not establish exact performance intonation
-or a complete maqam sayr.
-
-## Current limits
-
-See [docs/PROGRESS.md](docs/PROGRESS.md) for measured validation and remaining
-work. In particular, real oud recordings, physical camera/mic permission flows,
-packaged WKWebView/WebView2 inference, field latency and intonation accuracy still
-need validation. Camera projection assumes even course spacing and stationary
-geometry. Sustained ongoing notes enter maqam history when completed. The current
-UI uses one example tuning; arbitrary tuning-profile editing and full structured
-lessons remain future work.
-
-Licensed under MIT OR Apache-2.0. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Project code: [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
+Dependencies and model assets have their own terms. See
+[third-party notices](THIRD_PARTY_NOTICES.md) and the
+[open-source release guide](docs/OPEN_SOURCE.md).

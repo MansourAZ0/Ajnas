@@ -31,6 +31,8 @@ async function main() {
     "vision_wasm_nosimd_internal.js", "vision_wasm_nosimd_internal.wasm"]) {
     generated.set(`wasm/${file}`, await readFile(path.join(packageRoot, "wasm", file)));
   }
+  generated.set("LICENSE-APACHE.txt", await readFile(path.join(root, "LICENSE-APACHE")));
+  generated.set("THIRD_PARTY_NOTICES.md", await readFile(path.join(root, "THIRD_PARTY_NOTICES.md")));
   let model = await readOrNull(path.join(output, "hand_landmarker.task"));
   if (!model || sha256(model) !== MODEL_SHA256) {
     if (checkOnly) throw new Error("Pinned hand model is missing or invalid. Run node scripts/prepare-vision.mjs during build preparation.");

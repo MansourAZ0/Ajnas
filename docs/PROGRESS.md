@@ -70,17 +70,11 @@ recognition or teaching accuracy.
 - Complete MPM comparison, Windows validation, accessibility review, signing,
   notarization and distribution packaging.
 
-CI requires a dependency-read token while the foundation repositories are private.
-
 ### Hosted CI status
 
-The first [GitHub Actions run](https://github.com/MansourAZ0/Ajnas/actions/runs/39702658100)
-could not start any build steps. GitHub reported: “The job was not started because
-recent account payments have failed or your spending limit needs to be increased.”
-This account-level billing/spending restriction must be resolved by the owner.
-`DEPS_TOKEN` is also not configured yet and will be required for private dependency
-access once runners can start. Local test/build results above remain independent
-of these hosted CI prerequisites.
+The validation results above are local observations. Public CI uses anonymous
+reads of tagged dependency repositories; see the current workflow for checks.
+A successful hosted run is still required before release.
 
 A local macOS **debug** bundle is preserved in `release-local/Ajnas.app` (gitignored).
 It is for development validation, not a notarized public release.
