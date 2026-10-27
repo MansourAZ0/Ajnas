@@ -183,6 +183,8 @@ export const CameraStage = memo(function CameraStage({
             playerPitch: f.note.playerPitch,
             confidence: f.confidence,
             positions: f.note.positions,
+            cents: f.note.cents,
+            label: f.note.label.text,
           }
         : null,
     (a, b) => a === b || (!!a && !!b && a.receivedAt === b.receivedAt),

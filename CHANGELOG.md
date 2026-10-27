@@ -15,5 +15,8 @@
   labels and tonic highlighting for the selected maqam, ±10-cent halos,
   vibrating strings, intonation-coloured glow and pluck ripples. Optional
   (Settings → Display), and it follows the animation and reduced-motion settings.
+- Camera: the fingertip at the heard note's position is drawn in its
+  intonation colour with the note name (after calibration, when audio and
+  vision agree); the other fingertip dots dim.
 - Accessible README and practice guide, credits, privacy/contribution/release guides,
   audit, source exporter, secret/dependency checks and dependency update configuration.

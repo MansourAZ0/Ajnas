@@ -9,6 +9,10 @@ export interface AudioEvidence {
   playerPitch: number;
   confidence: number;
   positions: { course: number; distanceMm: number }[];
+  /** Deviation from the nearest named note, in cents; colours the playing fingertip. */
+  cents?: number;
+  /** Display name of the heard note, drawn beside the playing fingertip. */
+  label?: string;
 }
 /**
  * Raw MediaPipe handedness. MediaPipe assumes a mirrored (selfie) image, so on
