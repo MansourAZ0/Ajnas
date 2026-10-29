@@ -35,6 +35,7 @@ import {
 import { HandCountPolicy } from "../vision/handCount";
 import { HandRoleLearner } from "../vision/handRole";
 import { LandmarkSmoother } from "../vision/smoothing";
+import { INTONATION_COLOURS, intonation } from "../lib/zand";
 import type {
   AudioEvidence,
   Landmark,
@@ -71,6 +72,13 @@ export interface CameraPanelProps {
    */
   frettingHand?: FrettingSetting;
   advanced?: AdvancedVisionOptions;
+}
+
+/** The fingertip whose position agrees with the heard note. */
+interface Highlight {
+  landmark: number;
+  colour: string;
+  label: string;
 }
 
 /** A worker result with the single selected fretting hand. */
@@ -154,6 +162,7 @@ export function CameraPanel({
     corners: [] as Point[],
     calibrated: false,
     version: 0,
+    highlight: null as Highlight | null,
   });
 
   useEffect(() => {
@@ -279,7 +288,8 @@ export function CameraPanel({
         at - tracked.observation.capturedAt <= MAX_DRAW_AGE_MS
           ? tracked.hand
           : null;
-      const key = `${values.version}:${hand ? tracked!.observation.frameId : "-"}`;
+      const lit = hand ? values.highlight : null;
+      const key = `${values.version}:${hand ? tracked!.observation.frameId : "-"}:${lit ? `${lit.landmark}${lit.colour}${lit.label}` : ""}`;
       if (key === drawn) return;
       drawn = key;
       context.clearRect(0, 0, width, height);
@@ -314,10 +324,11 @@ export function CameraPanel({
       }
       if (hand) {
         const radius = Math.max(4, Math.round(width / 190));
-        context.fillStyle = "#ffffff";
+        // With a playing finger identified, the others step back.
+        context.fillStyle = lit ? "rgba(255,255,255,0.6)" : "#ffffff";
         for (const index of DRAWN_TIPS) {
           const point = hand[index];
-          if (!point) continue;
+          if (!point || index === lit?.landmark) continue;
           context.beginPath();
           context.arc(
             point.x * width,
@@ -328,6 +339,9 @@ export function CameraPanel({
           );
           context.fill();
         }
+        const point = lit && hand[lit.landmark];
+        if (lit && point)
+          drawPlayingTip(context, point, width, height, radius, lit);
       }
     };
     frame = requestAnimationFrame(draw);
@@ -378,6 +392,19 @@ export function CameraPanel({
       : null,
     now,
   );
+
+  // The playing fingertip, for the draw loop: only when vision and audio agree.
+  const highlight: Highlight | null =
+    fusion.state === "consistent" && fusion.candidate && audio
+      ? {
+          landmark: fusion.candidate.landmarkIndex,
+          colour: INTONATION_COLOURS[intonation(audio.cents ?? 0)],
+          label: audio.label ?? "",
+        }
+      : null;
+  useEffect(() => {
+    live.current.highlight = highlight;
+  });
 
   const clearTracking = () => {
     latest.current = null;
@@ -906,6 +933,42 @@ export function CameraPanel({
       )}
     </section>
   );
+}
+
+/** A glowing, intonation-coloured fingertip with the heard note's name. */
+function drawPlayingTip(
+  context: CanvasRenderingContext2D,
+  point: Point,
+  width: number,
+  height: number,
+  radius: number,
+  lit: Highlight,
+) {
+  const x = point.x * width;
+  const y = point.y * height;
+  context.save();
+  context.shadowColor = lit.colour;
+  context.shadowBlur = radius * 4;
+  context.fillStyle = lit.colour;
+  context.beginPath();
+  context.arc(x, y, radius * 1.6, 0, Math.PI * 2);
+  context.fill();
+  context.restore();
+  context.strokeStyle = "#ffffff";
+  context.lineWidth = Math.max(1.5, radius / 3);
+  context.beginPath();
+  context.arc(x, y, radius * 2.4, 0, Math.PI * 2);
+  context.stroke();
+  if (!lit.label) return;
+  const size = Math.max(14, Math.round(width / 55));
+  context.font = `600 ${size}px sans-serif`;
+  context.textAlign = "center";
+  context.lineWidth = Math.max(3, size / 5);
+  context.strokeStyle = "rgba(0,0,0,0.7)";
+  context.strokeText(lit.label, x, y - radius * 3.2);
+  context.fillStyle = lit.colour;
+  context.fillText(lit.label, x, y - radius * 3.2);
+  context.textAlign = "start";
 }
 
 export default CameraPanel;

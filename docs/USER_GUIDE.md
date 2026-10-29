@@ -51,6 +51,9 @@ always labelled, both in a banner and inside the camera view.
 5. Before camera calibration, measure the instrument dimensions in Settings.
    Mark outer **course centerlines** at nut and fingerboard end in the on-screen
    order. Keep the oud and camera stationary, and recalibrate when either moves.
+   Once calibrated, the white fingertip dot that sits at the heard note's
+   position lights up in the intonation colour, with the note's name. Teal-green
+   means within ±10 cents, blue flat and coral sharp.
 
 For browser-only UI work, `npm run dev` and open `/?mock` to use a dev-only
 Tauri IPC mock (`src/dev/mockTauri.ts`; options `lang=ar`, `maqam=off`,

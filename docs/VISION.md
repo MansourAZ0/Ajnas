@@ -197,7 +197,18 @@ between-course tips and multiple matching fingers remain unknown. A single match
 that the geometry is consistent with an audio-derived position. It does **not**
 establish which finger is pressing a string or increase the acoustic detector's
 confidence. Disagreement preserves the acoustic note. Handedness scores are not
-misrepresented as finger-position confidence. The panel expires position evidence
+misrepresented as finger-position confidence.
+
+**Matching fingertip.** When the state is `consistent`, that fingertip's
+dot is drawn larger, in the heard note's intonation colour from
+`src/lib/zand.ts` (within ±10 cents teal-green, flat blue, sharp coral). It
+gets a white ring and the note's name, and the other dots dim. `AudioEvidence`
+carries the optional `cents` and `label` for this. The highlight shows that
+the fingertip is *at* the heard position. It still does not prove that the
+finger is pressing the string. Conflict and unknown states keep plain white
+dots.
+
+The panel expires position evidence
 even when a worker stops delivering results. Stop/unmount cancels animation and
 timers, terminates the worker, releases all camera tracks and closes any bitmap
 that arrives after stop. Late permission grants are immediately released.
