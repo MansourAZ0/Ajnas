@@ -7,7 +7,7 @@
  * the highest-pitched course.
  */
 import type { NoteLabel } from "@naghma/ui";
-import type { Fingerboard, Position } from "./types";
+import type { Fingerboard, LiveNote, Position } from "./types";
 
 /** Half-width of a drawn intonation zone, matching the coach's "in tune" range. */
 export const ZONE_CENTS = 10;
@@ -114,6 +114,13 @@ export function intonation(cents: number): Intonation {
     : cents < 0
       ? "flat"
       : "sharp";
+}
+
+/** Content that must repaint even when motion is disabled and a note keeps its id. */
+export function staticNoteKey(note: LiveNote | null): string {
+  return JSON.stringify(
+    note && [note.eventId, intonation(note.cents), note.positions],
+  );
 }
 
 /** Shared colours: in tune teal-green, flat cool blue, sharp warm coral. */

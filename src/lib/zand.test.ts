@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { NoteLabel } from "@naghma/ui";
-import type { Fingerboard, Target } from "./types";
+import type { Fingerboard, LiveNote, Target } from "./types";
 import {
   ZAND_VIEW,
   across,
   distanceForCents,
   intonation,
+  staticNoteKey,
   zandMarks,
   zandPoint,
 } from "./zand";
@@ -99,6 +100,18 @@ describe("zand marks", () => {
 });
 
 describe("zand geometry", () => {
+  it("repaints a settled note's changed positions without a new event id", () => {
+    const note = {
+      eventId: 1,
+      cents: 0,
+      positions: board(false).targets[0].positions,
+    } as LiveNote;
+    const revised = { ...note, positions: board(false).targets[1].positions };
+    expect(staticNoteKey(revised)).not.toBe(staticNoteKey(note));
+    expect(staticNoteKey({ ...note })).toBe(staticNoteKey(note));
+    expect(staticNoteKey(null)).not.toBe(staticNoteKey(note));
+  });
+
   it("tapers towards the nut and runs nut to end left to right", () => {
     const nutSpan = zandPoint(0, 1).y - zandPoint(0, 0).y;
     const endSpan = zandPoint(1, 1).y - zandPoint(1, 0).y;
