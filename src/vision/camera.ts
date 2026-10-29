@@ -410,6 +410,8 @@ export class CameraSession {
         this.lastPresented = this.presented;
         this.busy = true; // Covers bitmap creation too: no queued frames.
         const capturedAt = performance.now();
+        // A GPU timeout can replace the worker while bitmap creation awaits.
+        const captureWorker = worker;
         const frameId = ++this.frameId;
         this.pending = {
           frameId,
@@ -430,12 +432,12 @@ export class CameraSession {
         );
         void bitmapOf().then(
           (bitmap) => {
-            if (!active()) {
+            if (!active() || worker !== captureWorker) {
               bitmap.close();
               return;
             }
             try {
-              worker.postMessage(
+              captureWorker.postMessage(
                 { type: "frame", frameId, capturedAt, bitmap },
                 [bitmap],
               );
@@ -445,7 +447,8 @@ export class CameraSession {
             }
           },
           (error) => {
-            if (active()) this.fail(cameraError(error));
+            if (active() && worker === captureWorker)
+              this.fail(cameraError(error));
           },
         );
       };
