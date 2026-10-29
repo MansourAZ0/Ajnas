@@ -69,7 +69,10 @@ export async function installMockTauri() {
     fixtures[arabic ? "arabic" : "latin"].settings,
   );
   // Fixtures predate the zand settings; fill the Rust default.
-  settings.zand ??= { animated: query.get("zand") !== "classic" };
+  settings.zand ??= {
+    animated: query.get("zand") !== "classic",
+    overlay: true,
+  };
   if (query.get("maqam") === "off") settings.maqam.enabled = false;
   if (query.has("diagnostics")) settings.showDiagnostics = true;
   let dataset: Dataset | null =

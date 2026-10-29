@@ -483,6 +483,16 @@ input[type="checkbox"] {
   fill: #fff0cc;
   r: 8;
 }
+/* Zand labels on the calibrated camera image. */
+.zand-camera-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.zand-camera-labels .zand-label {
+  font-size: 12px;
+  opacity: 0.9;
+}
 /* Animated zand: canvas (wood, strings, motion) under SVG targets and HTML labels. */
 .zand {
   position: relative;

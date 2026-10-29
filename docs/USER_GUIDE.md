@@ -54,6 +54,14 @@ always labelled, both in a banner and inside the camera view.
    Once calibrated, the white fingertip dot that sits at the heard note's
    position lights up in the intonation colour, with the note's name. Teal-green
    means within ±10 cents, blue flat and coral sharp.
+6. With a calibration saved, the zand is also drawn on the real neck in the
+   camera image. Faint virtual strings run along the courses, and a small
+   ±10-cent zone sits at every position of the shown notes (tonic gold,
+   quarter tones teal). The selected target gets a ring and its name. With no
+   target selected, the tonic positions are named instead. If the virtual
+   strings do not lie on the real ones, recalibrate. The zones are only as
+   accurate as the four marked corners and the measured length. Turn this off
+   in Settings → Display.
 
 For browser-only UI work, `npm run dev` and open `/?mock` to use a dev-only
 Tauri IPC mock (`src/dev/mockTauri.ts`; options `lang=ar`, `maqam=off`,

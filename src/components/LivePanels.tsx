@@ -16,7 +16,7 @@ import type {
 } from "../lib/types";
 import type { AudioEvidence } from "../vision/types";
 import { AnimatedZand } from "./AnimatedZand";
-import { CameraPanel } from "./CameraPanel";
+import { CameraPanel, type ZandOverlay } from "./CameraPanel";
 import { Fingerboard } from "./Fingerboard";
 
 type Tr = (en: string, ar: string) => string;
@@ -167,12 +167,14 @@ export const CameraStage = memo(function CameraStage({
   fingerboardLengthMm,
   courses,
   overlay,
+  zand,
 }: {
   store: PerformanceStore;
   arabic: boolean;
   fingerboardLengthMm: number;
   courses: number;
   overlay: ReactNode;
+  zand: ZandOverlay | null;
 }) {
   const audio = useLive<LiveFrame, AudioEvidence | null>(
     store,
@@ -197,6 +199,7 @@ export const CameraStage = memo(function CameraStage({
       fingerboardLengthMm={fingerboardLengthMm}
       courses={courses}
       overlay={overlay}
+      zand={zand}
     />
   );
 });

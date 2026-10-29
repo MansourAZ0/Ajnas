@@ -264,6 +264,18 @@ export function SettingsPanel({
           <label className="check">
             <input
               type="checkbox"
+              checked={draft.zand.overlay}
+              onChange={(e) =>
+                set("zand", { ...draft.zand, overlay: e.target.checked })
+              }
+            />
+            {ar
+              ? "إظهار مواضع النغمات على زند العود في صورة الكاميرا بعد المعايرة"
+              : "Show note positions on the oud neck in the calibrated camera image"}
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
               checked={draft.arabicDigits}
               onChange={(e) => set("arabicDigits", e.target.checked)}
             />

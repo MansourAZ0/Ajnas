@@ -38,6 +38,8 @@ export interface Settings {
   zand: {
     /** Animated neck instead of the plain fingerboard map. */
     animated: boolean;
+    /** Draw the note positions on the calibrated camera image. */
+    overlay: boolean;
   };
   showDiagnostics: boolean;
 }

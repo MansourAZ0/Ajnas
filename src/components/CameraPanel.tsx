@@ -35,7 +35,13 @@ import {
 import { HandCountPolicy } from "../vision/handCount";
 import { HandRoleLearner } from "../vision/handRole";
 import { LandmarkSmoother } from "../vision/smoothing";
-import { INTONATION_COLOURS, intonation } from "../lib/zand";
+import { NoteName, type AccidentalStyle } from "@naghma/ui";
+import { INTONATION_COLOURS, intonation, type ZandMark } from "../lib/zand";
+import {
+  imageFromBoard,
+  zandOverlayShapes,
+  type ZandOverlayShapes,
+} from "../vision/zandOverlay";
 import type {
   AudioEvidence,
   Landmark,
@@ -65,6 +71,8 @@ export interface CameraPanelProps {
   courses: number;
   /** Rendered over the live video, above the landmark canvas; non-interactive. */
   overlay?: ReactNode;
+  /** Zand note positions drawn on the calibrated neck; null or absent = none. */
+  zand?: ZandOverlay | null;
   /**
    * Initial fretting (note-stopping) hand when the user has not chosen one in
    * the panel. "auto" (default) learns it from the risha grip, which also
@@ -72,6 +80,12 @@ export interface CameraPanelProps {
    */
   frettingHand?: FrettingSetting;
   advanced?: AdvancedVisionOptions;
+}
+
+export interface ZandOverlay {
+  marks: readonly ZandMark[];
+  selectedId: string | null;
+  accidentalStyle: AccidentalStyle;
 }
 
 /** The fingertip whose position agrees with the heard note. */
@@ -115,6 +129,7 @@ export function CameraPanel({
   fingerboardLengthMm,
   courses,
   overlay,
+  zand = null,
   frettingHand: initialFrettingHand = "auto",
   advanced,
 }: CameraPanelProps) {
@@ -163,6 +178,7 @@ export function CameraPanel({
     calibrated: false,
     version: 0,
     highlight: null as Highlight | null,
+    zand: null as ZandOverlayShapes | null,
   });
 
   useEffect(() => {
@@ -247,6 +263,22 @@ export function CameraPanel({
     () => (calibration ? fingerboardHomography(calibration.corners) : null),
     [calibration],
   );
+  const zandShapes = useMemo(
+    () =>
+      zand && calibration && calibrated
+        ? zandOverlayShapes(
+            imageFromBoard(calibration.corners),
+            zand.marks,
+            courses,
+            zand.selectedId,
+          )
+        : null,
+    [zand, calibration, calibrated, courses],
+  );
+  useEffect(() => {
+    live.current.zand = zandShapes;
+    live.current.version++;
+  }, [zandShapes]);
 
   useEffect(() => {
     const values = live.current;
@@ -293,8 +325,10 @@ export function CameraPanel({
       if (key === drawn) return;
       drawn = key;
       context.clearRect(0, 0, width, height);
+      if (values.zand) drawZand(context, values.zand, width, height);
       const points = values.corners;
-      if (points.length) {
+      // Once the zand is drawn, its strings already outline the calibration.
+      if (points.length && !(values.zand && values.calibrated)) {
         context.strokeStyle = values.calibrated ? "#53d6b2" : "#ffcc77";
         context.fillStyle = "rgba(83,214,178,0.08)";
         context.lineWidth = 3;
@@ -814,6 +848,19 @@ export function CameraPanel({
             cursor: editing ? "crosshair" : "default",
           }}
         />
+        {zandShapes && zand && state === "running" && (
+          <div className="zand-camera-labels" aria-hidden="true">
+            {zandShapes.labels.map(({ point, mark }) => (
+              <span
+                key={mark.key}
+                className={`zand-label ${mark.tonic ? "tonic" : ""} ${mark.targetId === zand.selectedId ? "chosen" : ""}`}
+                style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }}
+              >
+                <NoteName label={mark.label} style={zand.accidentalStyle} />
+              </span>
+            ))}
+          </div>
+        )}
         {overlay && (
           <div
             className="camera-overlay"
@@ -933,6 +980,57 @@ export function CameraPanel({
       )}
     </section>
   );
+}
+
+/** Virtual strings, ±10-cent zones and the target ring on the real neck. */
+function drawZand(
+  context: CanvasRenderingContext2D,
+  shapes: ZandOverlayShapes,
+  width: number,
+  height: number,
+) {
+  const px = (p: Point) => [p.x * width, p.y * height] as const;
+  const line = Math.max(1, width / 900);
+  context.save();
+  context.strokeStyle = "rgba(243,232,204,0.35)";
+  context.lineWidth = line;
+  for (const [from, to] of shapes.strings) {
+    context.beginPath();
+    context.moveTo(...px(from));
+    context.lineTo(...px(to));
+    context.stroke();
+  }
+  // Zones are a few pixels long on a distant neck: a dark outline and an
+  // outline in their own colour keep them visible on wood and strings.
+  context.lineJoin = "round";
+  for (const zone of shapes.zones) {
+    context.beginPath();
+    zone.points.forEach((p, i) =>
+      i ? context.lineTo(...px(p)) : context.moveTo(...px(p)),
+    );
+    context.closePath();
+    context.globalAlpha = zone.alpha * 0.6;
+    context.strokeStyle = "#000000";
+    context.lineWidth = line * 3.5;
+    context.stroke();
+    context.globalAlpha = zone.alpha;
+    context.strokeStyle = zone.colour;
+    context.lineWidth = line * 1.5;
+    context.stroke();
+    context.fillStyle = zone.colour;
+    context.fill();
+  }
+  context.globalAlpha = 1;
+  context.strokeStyle = "#dec08a";
+  context.lineWidth = line * 2.5;
+  for (const { centre, edge } of shapes.rings) {
+    const [x, y] = px(centre);
+    const [ex, ey] = px(edge);
+    context.beginPath();
+    context.arc(x, y, Math.max(6, Math.hypot(ex - x, ey - y)), 0, Math.PI * 2);
+    context.stroke();
+  }
+  context.restore();
 }
 
 /** A glowing, intonation-coloured fingertip with the heard note's name. */
