@@ -22,6 +22,14 @@ export class PerformanceStore extends LiveStore<LiveFrame> {
         t: frame.t,
       });
       if (this.history.length > 160) this.history.shift();
+    } else if (note) {
+      const previous = this.history.at(-1)!;
+      // The tracker renames a settling pluck in place, preserving its id.
+      if (previous.text !== note.label.text) {
+        previous.pitch = note.playerPitch;
+        previous.text = note.label.text;
+        previous.cents = note.cents;
+      }
     }
   }
   protected override onReset() {
