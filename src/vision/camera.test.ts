@@ -3,10 +3,12 @@ import { CameraSession, cameraError } from "./camera";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 function setup(getUserMedia: () => Promise<MediaStream>) {
   const track = Object.assign(new EventTarget(), {
@@ -224,6 +226,66 @@ describe("camera session lifecycle without camera hardware", () => {
     expect(createImageBitmap).toHaveBeenCalledTimes(2);
     fixture.session.stop();
   });
+  it.each(["resolve", "reject"] as const)(
+    "ignores a late GPU bitmap %s during CPU fallback",
+    async (outcome) => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const fixture = setup(async () => fixture.stream);
+      try {
+        const gpuBitmap = { close: vi.fn(), width: 640, height: 360 };
+        const cpuBitmap = { close: vi.fn(), width: 640, height: 360 };
+        const pending = deferred<ImageBitmap>();
+        vi.stubGlobal(
+          "createImageBitmap",
+          vi
+            .fn()
+            .mockImplementationOnce(() => pending.promise)
+            .mockResolvedValue(cpuBitmap),
+        );
+        fixture.session.setWorkerOptions({ delegate: "GPU" });
+        const start = fixture.session.start("");
+        await flush();
+        const gpu = fixture.WorkerMock.instances[0];
+        gpu.onmessage?.({
+          data: { type: "ready", delegate: "GPU" },
+        } as MessageEvent);
+        await start;
+        fixture.frames.shift()!(performance.now());
+        vi.advanceTimersByTime(4000);
+        await flush();
+        const cpu = fixture.WorkerMock.instances[1];
+        expect(gpu.terminate).toHaveBeenCalledTimes(1);
+
+        if (outcome === "resolve")
+          pending.resolve(gpuBitmap as unknown as ImageBitmap);
+        else pending.reject(new Error("Old GPU capture failed"));
+        await flush();
+        expect(cpu.postMessage).toHaveBeenCalledTimes(1); // Initialization only.
+        if (outcome === "resolve")
+          expect(gpuBitmap.close).toHaveBeenCalledTimes(1);
+
+        cpu.onmessage?.({
+          data: { type: "ready", delegate: "CPU" },
+        } as MessageEvent);
+        await flush();
+        fixture.video.currentTime = 2;
+        fixture.frames.shift()!(performance.now() + 100);
+        await flush();
+        expect(cpu.postMessage).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "frame", bitmap: cpuBitmap }),
+          [cpuBitmap],
+        );
+        expect(fixture.onState).not.toHaveBeenCalledWith(
+          "error",
+          expect.anything(),
+        );
+      } finally {
+        fixture.session.stop();
+        await flush();
+        vi.useRealTimers();
+      }
+    },
+  );
   it("labels permission and device failures without substituting fake observations", async () => {
     const fixture = setup(async () => {
       throw new DOMException("Denied", "NotAllowedError");
