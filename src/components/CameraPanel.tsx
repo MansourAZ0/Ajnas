@@ -34,7 +34,11 @@ import {
 } from "../vision/handSelection";
 import { HandCountPolicy } from "../vision/handCount";
 import { HandRoleLearner } from "../vision/handRole";
-import { NeckFollower, type NeckUpdate } from "../vision/neckFollower";
+import {
+  NeckFollower,
+  neckTrackingUsable,
+  type NeckUpdate,
+} from "../vision/neckFollower";
 import { handBox, type Box } from "../vision/neckTracker";
 import { LandmarkSmoother } from "../vision/smoothing";
 import { NoteName, type AccidentalStyle } from "@naghma/ui";
@@ -298,6 +302,7 @@ export function CameraPanel({
       element,
       (update) => {
         neckLatest.current = update;
+        setNeckError("");
       },
       (message) => setNeckError(message),
     );
@@ -316,7 +321,8 @@ export function CameraPanel({
     };
   }, [following, calibration]);
 
-  const lost = following && neck?.status === "lost";
+  const lost =
+    following && (!!neckError || (!!neck && !neckTrackingUsable(neck, now)));
   const followed =
     following && neck?.status === "tracking" ? neck.corners : null;
   // Keyed by value: every tracker update is a new array, even when still.
@@ -335,7 +341,10 @@ export function CameraPanel({
     }
   }, [activeCorners]);
   /** Calibrated, and the calibration still fits the neck. */
-  const usable = calibrated && !lost && !!map;
+  const usable =
+    calibrated &&
+    !!map &&
+    (!following || (!neckError && neckTrackingUsable(neck, now)));
   const zandShapes = useMemo(
     () =>
       zand && activeCorners && usable
@@ -355,6 +364,7 @@ export function CameraPanel({
     if (
       !calibration ||
       !following ||
+      lost ||
       neck?.status !== "tracking" ||
       !neck.corners ||
       neck.inliers < 20
@@ -384,7 +394,7 @@ export function CameraPanel({
     } catch {
       /* Following still works for this session. */
     }
-  }, [neck, calibration, following]);
+  }, [neck, calibration, following, lost]);
   useEffect(() => {
     live.current.zand = zandShapes;
     live.current.version++;
