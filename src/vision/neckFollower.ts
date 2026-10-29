@@ -26,14 +26,31 @@ export type NeckReply =
   | { type: "error"; message: string };
 
 export interface NeckUpdate extends NeckResult {
+  /** Main-thread capture time, before bitmap creation and worker processing. */
+  capturedAt: number;
   /** Worker time for this frame. */
   ms: number;
+}
+
+/** A pose is evidence only while it describes a recent, successfully tracked frame. */
+export function neckTrackingUsable(
+  update: NeckUpdate | null,
+  now: number,
+): boolean {
+  return (
+    !!update &&
+    update.status === "tracking" &&
+    !!update.corners &&
+    now >= update.capturedAt &&
+    now - update.capturedAt <= 500
+  );
 }
 
 export class NeckFollower {
   private worker: Worker | null = null;
   private timer: ReturnType<typeof setInterval> | undefined;
   private busy = false;
+  private capturedAt = 0;
   private stopped = false;
   private referenced = false;
   private pending: { corners: Quadrilateral; exclude: Box[] } | null = null;
@@ -66,7 +83,11 @@ export class NeckFollower {
       }
       if (data.type === "error") this.onError(data.message);
       else if (data.type === "result")
-        this.onUpdate({ ...data.result, ms: data.ms });
+        this.onUpdate({
+          ...data.result,
+          capturedAt: this.capturedAt,
+          ms: data.ms,
+        });
     };
     this.worker.onerror = (event) => {
       this.busy = false;
@@ -98,6 +119,7 @@ export class NeckFollower {
     if (!this.pending && !this.referenced) return;
     if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
     this.busy = true;
+    const capturedAt = performance.now();
     const width = NECK_ANALYSIS_WIDTH;
     const height = Math.max(
       16,
@@ -128,6 +150,7 @@ export class NeckFollower {
       this.referenced = true;
       this.requested = { ...reference, exclude: this.exclude };
     }
+    this.capturedAt = capturedAt;
     this.worker.postMessage(request, [bitmap]);
   }
 }
