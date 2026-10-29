@@ -19,9 +19,19 @@ always labelled, both in a banner and inside the camera view.
   selected-target coaching and the reference tone. *Library*: load the
   researched eight, import or remove a dataset, recognition options and the
   maqam explorer.
-- **Below the camera.** The fretless fingerboard map (always player notation)
+- **Below the camera.** The fretless fingerboard (always player notation)
   and, for a selected maqam, its scale and ajnas. Diagnostics appear here when
   enabled in Settings.
+- **The animated zand (زند).** By default the fingerboard is drawn as an oud
+  neck. With a maqam selected each position is labelled and the tonic is gold.
+  A faint halo marks ±10 cents around each theoretical position. While you
+  play, the strings that could have produced the note vibrate beyond the
+  stopped point and the position glows teal-green (within ±10 cents), blue
+  (flat) or coral (sharp). Audio alone cannot tell which course you used, so
+  every candidate position lights. Turn the zand off in Settings → Display
+  to get the plain map. The Animation setting and the system's reduced-motion
+  preference also apply: Reduced animation drops the ripples and keeps only a
+  small string movement, and Off draws only the glow.
 
 1. Select Microphone and Start listening, or choose Synthetic simulation to
    check the pipeline without hardware.

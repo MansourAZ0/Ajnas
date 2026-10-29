@@ -483,6 +483,121 @@ input[type="checkbox"] {
   fill: #fff0cc;
   r: 8;
 }
+/* Animated zand: canvas (wood, strings, motion) under SVG targets and HTML labels. */
+.zand {
+  position: relative;
+  width: 100%;
+  min-width: 600px;
+  aspect-ratio: 960 / 282;
+}
+.zand-canvas,
+.zand-targets,
+.zand-labels {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.zand-labels {
+  pointer-events: none;
+}
+.zand-course {
+  fill: #ccd6d0;
+  font-size: 13px;
+}
+.zand-tick {
+  fill: #94a5a1;
+  font-size: 11px;
+}
+.zand-target circle {
+  fill: #b8a983;
+  stroke: #120e0b;
+  stroke-width: 1;
+  transition:
+    r 0.15s ease,
+    fill 0.15s ease;
+}
+.zand-target.quarter circle {
+  fill: #6fa8a0;
+}
+.zand-target.tonic circle {
+  fill: var(--gold);
+  stroke: #fff0cd;
+  stroke-width: 1.4;
+}
+.zand-target.chosen circle {
+  fill: #e2c48c;
+  stroke: #fff0cd;
+  stroke-width: 2;
+}
+.zand-target .zand-halo {
+  fill: none;
+  stroke: var(--gold);
+  stroke-width: 2;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: zand-breathe 1.8s ease-in-out infinite;
+}
+.zand-course-no {
+  fill: #192424;
+  font-size: 10px;
+  font-weight: 700;
+  pointer-events: none;
+}
+@keyframes zand-breathe {
+  0%,
+  100% {
+    opacity: 0.85;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 0.25;
+    transform: scale(1.25);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .zand-target .zand-halo {
+    animation: none;
+  }
+}
+.zand-label {
+  position: absolute;
+  transform: translate(-50%, -165%);
+  font-size: 9.5px;
+  line-height: 1;
+  color: #e9e1cc;
+  opacity: 0.72;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px #000;
+}
+.zand-label.tonic {
+  color: var(--gold);
+  opacity: 0.95;
+  font-weight: 600;
+}
+.zand-label.chosen {
+  opacity: 1;
+  color: #fff0cd;
+}
+.zand-label .note-name {
+  display: inline-flex;
+  align-items: baseline;
+}
+.zand-label .note-accidental {
+  font-size: 1em;
+  align-self: center;
+}
+.zand-label .note-accidental svg {
+  width: 0.55em;
+  height: 1em;
+}
+.zand-label .note-octave {
+  font-size: 0.75em;
+  align-self: baseline;
+  margin: 0;
+  color: inherit;
+  opacity: 0.6;
+}
 .board-key {
   display: flex;
   align-items: center;
