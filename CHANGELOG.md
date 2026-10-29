@@ -21,5 +21,10 @@
 - Zand on the camera image: after calibration, virtual strings, ±10-cent
   zones for the shown notes, the selected target's ring and note names are
   drawn on the real neck. Optional (Settings → Display).
+- Camera: follow the oud. After calibration, a worker tracks the neck
+  (Lucas–Kanade against a keyframe, RANSAC similarity, exposure
+  normalisation, hands excluded) and keeps the calibration on it as the oud or
+  camera moves. It pauses positions when the neck is lost and saves the
+  followed corners. Optional in the camera panel.
 - Accessible README and practice guide, credits, privacy/contribution/release guides,
   audit, source exporter, secret/dependency checks and dependency update configuration.
