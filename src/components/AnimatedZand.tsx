@@ -16,6 +16,7 @@ import {
   ZAND_VIEW,
   across,
   intonation,
+  staticNoteKey,
   zandMarks,
   zandPoint,
   type ZandMark,
@@ -118,9 +119,7 @@ export const AnimatedZand = memo(function AnimatedZand({
       ripples = ripples.filter((r) => now - r.born < RIPPLE_MS);
       const moving = energy.some((e) => e > 0) || ripples.length > 0;
       // Reduced motion: redraw only when what is shown changes.
-      const key = still()
-        ? `${note?.eventId ?? "-"}:${note ? intonation(note.cents) : ""}`
-        : "";
+      const key = still() ? staticNoteKey(note) : "";
       if (still() && key === lastKey) return;
       lastKey = key;
 
