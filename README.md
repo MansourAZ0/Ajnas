@@ -34,10 +34,10 @@ Linux also needs ALSA development headers. macOS is the main development
 platform; Windows still needs validation.
 
 Clone both repositories into the same parent folder. Ajnas uses the shared UI
-and Rust libraries from `naghma-core` **v0.5.0**:
+and Rust libraries from `naghma-core` **v0.6.0**:
 
 ```sh
-git clone --branch v0.5.0 https://github.com/MansourAZ0/naghma-core.git
+git clone --branch v0.6.0 https://github.com/MansourAZ0/naghma-core.git
 git clone https://github.com/MansourAZ0/Ajnas.git
 cd Ajnas
 npm ci --prefix ../naghma-core/packages/naghma-ui
@@ -95,7 +95,7 @@ model download. See [security and privacy](SECURITY.md).
 | **Ajnas** | Practice, teaching, camera and audio/vision coordination. |
 
 Ajnas consumes the libraries directly; it does not depend on Watar. Rust releases
-are pinned to `naghma-core`/`naghma-audio` **v0.5.0** and `pitchforge` **v0.1.0**
+are pinned to `naghma-core`/`naghma-audio` **v0.6.0** and `pitchforge` **v0.1.1**
 in `src-tauri/Cargo.lock`. New library fixes need new tags before reaching the app.
 
 ## Development

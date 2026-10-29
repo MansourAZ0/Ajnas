@@ -56,4 +56,25 @@ describe("target coaching", () => {
     expect(store.history).toHaveLength(0);
     expect(store.frame).toBeNull();
   });
+  it("renames a settling note in history without adding another pluck", () => {
+    const store = new PerformanceStore();
+    store.push(frame);
+    store.push({
+      ...frame,
+      t: 1.1,
+      note: {
+        ...frame.note!,
+        playerPitch: 64,
+        label: { ...frame.note!.label, text: "Mi4" },
+        cents: 0,
+      },
+    });
+    expect(store.history).toHaveLength(1);
+    expect(store.history[0]).toMatchObject({
+      pitch: 64,
+      text: "Mi4",
+      cents: 0,
+      t: 1,
+    });
+  });
 });

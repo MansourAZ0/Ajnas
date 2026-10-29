@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::{fs, io};
 
-pub const SETTINGS_VERSION: u32 = 2;
+pub const SETTINGS_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,8 +43,10 @@ impl Default for MaqamSettings {
             enabled: false,
             tonic: None,
             pitch_space: PitchSpace::Player,
-            window_s: 30.0,
-            interval_s: 5.0,
+            // Short enough that a taqsim's sections in different maqamat are
+            // not mixed; the instrument's tuning is still estimated over 60 s.
+            window_s: 10.0,
+            interval_s: 2.0,
             tolerance_cents: AnalyzerConfig::default().tolerance_cents,
             tuning_offset_cents: None,
         }
@@ -201,7 +203,14 @@ impl Settings {
                 // Version 1 always saved the then-default 25 s window (there
                 // was no control for it); move it to the new 30 s default.
                 if s.version < 2 && s.maqam.window_s == 25.0 {
-                    s.maqam.window_s = MaqamSettings::default().window_s;
+                    s.maqam.window_s = 30.0;
+                }
+                // Versions 1-2 had no control for the window or interval
+                // either: move the saved 30 s / 5 s defaults to 10 s / 2 s.
+                if s.version < 3 && s.maqam.window_s == 30.0 && s.maqam.interval_s == 5.0 {
+                    let defaults = MaqamSettings::default();
+                    s.maqam.window_s = defaults.window_s;
+                    s.maqam.interval_s = defaults.interval_s;
                 }
                 s.version = SETTINGS_VERSION;
                 s.validate()
@@ -244,7 +253,7 @@ mod tests {
         let s: Settings =
             serde_json::from_str(r#"{"maqam":{"enabled":true},"noteScript":"arabic"}"#).unwrap();
         assert!(s.maqam.enabled);
-        assert_eq!(s.maqam.window_s, 30.0);
+        assert_eq!(s.maqam.window_s, 10.0);
         assert_eq!(s.maqam.tolerance_cents, 30.0);
         assert_eq!(s.maqam.tuning_offset_cents, None);
         assert!(
@@ -300,11 +309,27 @@ mod tests {
         .unwrap();
         let s = Settings::load(&path).unwrap();
         assert_eq!(s.version, SETTINGS_VERSION);
-        assert_eq!(s.maqam.window_s, 30.0);
+        // 25 s (v1 default) -> 30 s (v2 default) -> 10 s / 2 s (v3).
+        assert_eq!(s.maqam.window_s, 10.0);
+        assert_eq!(s.maqam.interval_s, 2.0);
         assert_eq!(s.maqam.tolerance_cents, 30.0);
         assert_eq!(s.maqam.tuning_offset_cents, None);
+        fs::write(
+            &path,
+            r#"{"version":2,"maqam":{"windowS":30.0,"intervalS":5.0}}"#,
+        )
+        .unwrap();
+        let s = Settings::load(&path).unwrap();
+        assert_eq!((s.maqam.window_s, s.maqam.interval_s), (10.0, 2.0));
+        // Other values were chosen on purpose and are kept.
         fs::write(&path, r#"{"version":2,"maqam":{"windowS":25.0}}"#).unwrap();
         assert_eq!(Settings::load(&path).unwrap().maqam.window_s, 25.0);
+        fs::write(
+            &path,
+            r#"{"version":3,"maqam":{"windowS":30.0,"intervalS":5.0}}"#,
+        )
+        .unwrap();
+        assert_eq!(Settings::load(&path).unwrap().maqam.window_s, 30.0);
         fs::remove_dir_all(&dir).unwrap();
     }
 }

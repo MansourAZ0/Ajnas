@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Changed
+- naghma-core/naghma-audio v0.6.0 and pitchforge v0.1.1: maqam ranking over
+  the last 10 s instead of 30 s (sections of a taqsim in different maqamat
+  are no longer mixed), Sikah's Huzam route, fewer false notes from pluck
+  transients and octave errors, notes shown about 20 ms sooner after a pluck,
+  and the library's audio start/stop race fixed.
+- Maqam analysis defaults to a 10 s window updated every 2 s. Settings saved
+  with the old 30 s / 5 s defaults (there was no control for them) move to
+  the new ones; other values are kept.
 - Install the sibling shared UI dependencies explicitly for reproducible clean builds.
 - Align shared-UI CI and setup with the existing naghma v0.5.0 dependency tag.
 - Use anonymous public dependency fetching and read-only workflow permissions.
