@@ -15,7 +15,10 @@ always labelled, both in a banner and inside the camera view.
   a coaching card. Maqam cards are heuristic and show dataset provenance.
 - **Side panel tabs.** *Tuner*: note, cents meter, Hz, periodicity, input
   level and the melodic trail. *Maqam*: hypotheses with evidence and
-  provenance. *Teach Me*: maqam, tonic, upper-jins route and octave,
+  provenance, and *Now playing in*: the jins of the leading maqam that the
+  last few seconds dwell in, as its first jins (jins al-asl, الجنس الأول) or
+  second jins (jins al-far', الجنس الثاني), or a possible modulation to a jins
+  outside it. *Teach Me*: maqam, tonic, upper-jins route and octave,
   selected-target coaching and the reference tone. *Library*: load the
   researched eight, import or remove a dataset, recognition options and the
   maqam explorer.

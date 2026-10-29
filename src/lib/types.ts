@@ -71,8 +71,32 @@ export interface LiveFrame {
   latencyMs: number | null;
   windowMs: number;
 }
+/** Root and tonal centre of a jins reading, spelled in the user's notation. */
+export interface JinsLabels {
+  root: NoteLabel;
+  centre: NoteLabel;
+}
+export type JinsRole = "lower" | "upper" | { other: string };
+/** A jins of the leading maqam that the latest passage dwells in. */
+export interface ActiveJins {
+  jins: string;
+  onStep: number;
+  role: JinsRole;
+  root: { degree: Degree; accidental: number };
+  centre: { degree: Degree; accidental: number };
+  fit: number;
+}
+/** A jins outside the leading maqam that explains the latest passage. */
+export interface ForeignJins {
+  jins: string;
+  root: { degree: Degree; accidental: number };
+  centre: { degree: Degree; accidental: number };
+  fit: number;
+}
 export interface Analysis {
   tonicLabels?: NoteLabel[];
+  activeJinsLabels?: JinsLabels | null;
+  foreignJinsLabels?: JinsLabels | null;
   window: [number, number];
   notes: number;
   status: "insufficientData" | "unknown" | "ambiguous" | "likely";
@@ -88,6 +112,10 @@ export interface Analysis {
   possibleModulation: boolean;
   /** Tuning offset (cents) removed before scoring. */
   tuningOffsetCents?: number;
+  /** Which jins of the leading maqam the latest passage dwells in. */
+  activeJins?: ActiveJins | null;
+  /** A jins outside the leading maqam: a possible modulation. */
+  foreignJins?: ForeignJins | null;
 }
 export interface Evidence {
   kind: string;
@@ -96,10 +124,17 @@ export interface Evidence {
   total?: number;
   completeness?: number;
   jins?: string;
+  count?: number;
 }
 export type Message =
   | ({ type: "frame" } & LiveFrame)
-  | { type: "analysis"; analysis: Analysis; tonicLabels: NoteLabel[] }
+  | {
+      type: "analysis";
+      analysis: Analysis;
+      tonicLabels: NoteLabel[];
+      activeJinsLabels?: JinsLabels | null;
+      foreignJinsLabels?: JinsLabels | null;
+    }
   | { type: "error"; message: string };
 export interface TonicOption {
   spelling: { degree: Degree; accidental: number };

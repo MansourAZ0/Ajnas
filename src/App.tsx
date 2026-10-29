@@ -192,7 +192,12 @@ export default function App() {
       if (message.type === "frame") store.push(message);
       else if (message.type === "analysis") {
         const at = performance.now();
-        setAnalysis({ ...message.analysis, tonicLabels: message.tonicLabels });
+        setAnalysis({
+          ...message.analysis,
+          tonicLabels: message.tonicLabels,
+          activeJinsLabels: message.activeJinsLabels,
+          foreignJinsLabels: message.foreignJinsLabels,
+        });
         setMaqamLog((log) =>
           recordAnalysis(log, message.analysis, message.tonicLabels, at),
         );

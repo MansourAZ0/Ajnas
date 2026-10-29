@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Changed
+- naghma-core/naghma-audio v0.7.0: a passage in a maqam's upper jins is
+  read as that jins, not as another maqam (Hijaz's upper Nahawand on Sol no
+  longer becomes maqam Nahawand). Recognition weighs phrase endings and keeps
+  a fading memory of earlier material; live analyses naming a recording's
+  stated maqam rose from 52% to 73% on the library's held-out recordings.
+  "Possible modulation" now names a jins outside the maqam and appears far
+  less often.
 - naghma-core/naghma-audio v0.6.0 and pitchforge v0.1.1: maqam ranking over
   the last 10 s instead of 30 s (sections of a taqsim in different maqamat
   are no longer mixed), Sikah's Huzam route, fewer false notes from pluck
@@ -19,6 +26,11 @@
 - Remove internal account information from current public documentation.
 
 ### Added
+- Maqam tab: *Now playing in* shows the jins of the leading maqam the last
+  few seconds dwell in, labelled first jins (الجنس الأول) or second jins
+  (الجنس الثاني), with a named possible modulation when the music leaves the
+  maqam. Evidence chips show phrase endings on the tonic and the tonic
+  register.
 - Animated oud neck (zand, زند) for the fingerboard: tapered ebony neck, note
   labels and tonic highlighting for the selected maqam, ±10-cent halos,
   vibrating strings, intonation-coloured glow and pluck ripples. Optional

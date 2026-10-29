@@ -2,12 +2,79 @@ import { memo } from "react";
 import type {
   Analysis,
   Dataset,
+  JinsRole,
   ScaleInfo,
   Settings,
   TonicOption,
 } from "../lib/types";
 
 type Tr = (en: string, ar: string) => string;
+
+function jinsRoleText(role: JinsRole, tr: Tr): string {
+  if (role === "lower")
+    return tr("First jins · jins al-asl", "الجنس الأول · جنس الأصل");
+  if (role === "upper")
+    return tr("Second jins · jins al-far'", "الجنس الثاني · جنس الفرع");
+  return role.other;
+}
+
+/**
+ * Where the latest passage sits inside the leading maqam: its first or
+ * second jins, or a jins outside it (a possible modulation).
+ */
+function JinsReading({
+  analysis,
+  dataset,
+  arabic,
+  tr,
+}: {
+  analysis: Analysis;
+  dataset: Dataset;
+  arabic: boolean;
+  tr: Tr;
+}) {
+  const leader = analysis.candidates[0];
+  const active = analysis.activeJins;
+  const foreign = analysis.foreignJins;
+  if (!leader || (!active && !foreign)) return null;
+  const lang = arabic ? "arabic" : "latin";
+  const jinsName = (id: string) =>
+    dataset.ajnas.find((j) => j.id === id)?.name[lang] ?? id;
+  const maqamName =
+    dataset.maqamat.find((m) => m.id === leader.maqam)?.name[lang] ??
+    leader.maqam;
+  const activeLabels = analysis.activeJinsLabels;
+  const foreignLabels = analysis.foreignJinsLabels;
+  return (
+    <div className="jins-reading" aria-live="polite">
+      <p className="eyebrow">{tr("NOW PLAYING IN", "يجري العزف الآن في")}</p>
+      {active && (
+        <>
+          <div className="jins-reading-name">
+            <strong>
+              {jinsName(active.jins)} {tr("on", "على")}{" "}
+              {activeLabels?.root.text ?? "—"}
+            </strong>
+            <span className="tag">{jinsRoleText(active.role, tr)}</span>
+          </div>
+          <p className="fine-print">
+            {tr("of", "من")} {maqamName} {tr("on", "على")}{" "}
+            {analysis.tonicLabels?.[0]?.text ?? "—"}
+            {activeLabels &&
+              activeLabels.centre.text !== activeLabels.root.text &&
+              ` · ${tr("tonal centre", "مركز الجنس")} ${activeLabels.centre.text}`}
+          </p>
+        </>
+      )}
+      {foreign && (
+        <p className="warning-text">
+          {tr("Possible modulation:", "تحويل محتمل:")} {jinsName(foreign.jins)}{" "}
+          {tr("on", "على")} {foreignLabels?.root.text ?? "—"}
+        </p>
+      )}
+    </div>
+  );
+}
 
 export function DatasetSource({
   dataset,
@@ -119,6 +186,14 @@ export const MaqamHypotheses = memo(function MaqamHypotheses({
                 )
               : tr("Waiting for analysis…", "بانتظار التحليل…")}
           </p>
+          {analysis && (
+            <JinsReading
+              analysis={analysis}
+              dataset={dataset}
+              arabic={arabic}
+              tr={tr}
+            />
+          )}
           {analysis?.candidates.map((c, candidateIndex) => {
             const maqam = dataset.maqamat.find((m) => m.id === c.maqam);
             return (
@@ -157,7 +232,11 @@ export const MaqamHypotheses = memo(function MaqamHypotheses({
                           ? `${tr("Degrees heard", "درجات مسموعة")} ${e.heard}/${e.total}`
                           : e.kind === "jins"
                             ? `${e.jins}: ${((e.completeness ?? 0) * 100).toFixed(0)}%`
-                            : e.kind}
+                            : e.kind === "cadence"
+                              ? `${tr("Phrase endings on tonic", "قفلات على القرار")} ${((e.share ?? 0) * 100).toFixed(0)}%`
+                              : e.kind === "register"
+                                ? `${tr("Tonic register", "منطقة القرار")} ${((e.share ?? 0) * 100).toFixed(0)}%`
+                                : e.kind}
                     </span>
                   ))}
                 </div>
@@ -173,14 +252,6 @@ export const MaqamHypotheses = memo(function MaqamHypotheses({
               </div>
             );
           })}
-          {analysis?.possibleModulation && (
-            <p className="warning-text">
-              {tr(
-                "Possible modulation within the analysis window.",
-                "احتمال انتقال مقامي داخل نافذة التحليل.",
-              )}
-            </p>
-          )}
           <p className="fine-print">
             {analysis?.notes ?? 0}{" "}
             {tr(

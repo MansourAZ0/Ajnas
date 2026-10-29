@@ -39,6 +39,13 @@ It is not measured Arabic intonation. These are provisional sourced illustration
 not a complete theory of sayr, characteristic phrases or modulation. No such
 phrases or modulation paths were invented.
 
+Recognition weighs where phrases come to rest and keeps a fading memory of
+what was played, so a passage in a maqam's upper jins stays that maqam. Hijaz
+on Re and Nahawand on Sol share every note; while you dwell on Hijaz's upper
+Nahawand on Sol, Ajnas keeps Hijaz and names Nahawand on Sol its second jins.
+It changes maqam only when the notes leave the current one, after about 15 s
+of a new maqam. A fixed analysis tonic removes this ambiguity entirely.
+
 Recognition compares alternatives separately rather than accepting their union.
 It may score a real performance using several valid routes less well than a
 single source illustration; “outside the selected illustration” does not mean
