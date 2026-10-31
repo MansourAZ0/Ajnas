@@ -21,6 +21,7 @@ import type {
   Analysis,
   Dataset,
   Fingerboard,
+  JinsLabels,
   LiveFrame,
   LiveNote,
   Message,
@@ -37,7 +38,12 @@ interface ScriptFixtures {
   boards: Record<string, Fingerboard>;
   notes: LiveNote[];
   frame: LiveFrame & { type: "frame" };
-  analyses: { analysis: Analysis; tonicLabels: NoteLabel[] }[];
+  analyses: {
+    analysis: Analysis;
+    tonicLabels: NoteLabel[];
+    activeJinsLabels?: JinsLabels | null;
+    foreignJinsLabels?: JinsLabels | null;
+  }[];
 }
 interface Fixtures {
   dataset: Dataset;
@@ -132,6 +138,8 @@ export async function installMockTauri() {
           ? next.analysis
           : { ...next.analysis, candidates: [] },
         tonicLabels: dataset ? next.tonicLabels : [],
+        activeJinsLabels: dataset ? next.activeJinsLabels : null,
+        foreignJinsLabels: dataset ? next.foreignJinsLabels : null,
       });
     }, analysisMs);
     stream = {

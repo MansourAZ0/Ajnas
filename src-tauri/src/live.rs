@@ -10,6 +10,7 @@ use naghma_core::maqam::{
 };
 use naghma_core::notation::NoteLabel;
 use naghma_core::tracking::LiveState;
+use naghma_core::tuning::NoteSpelling;
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -51,10 +52,24 @@ pub enum Message {
         analysis: MaqamAnalysis,
         #[serde(rename = "tonicLabels")]
         tonic_labels: Vec<NoteLabel>,
+        /// Root and tonal centre of `analysis.activeJins`, if any.
+        #[serde(rename = "activeJinsLabels")]
+        active_jins_labels: Option<JinsLabels>,
+        /// Root and tonal centre of `analysis.foreignJins`, if any.
+        #[serde(rename = "foreignJinsLabels")]
+        foreign_jins_labels: Option<JinsLabels>,
     },
     Error {
         message: String,
     },
+}
+
+/// Spelled notes of a jins reading in the user's notation, without octave.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JinsLabels {
+    pub root: NoteLabel,
+    pub centre: NoteLabel,
 }
 
 pub struct Processor {
@@ -125,9 +140,29 @@ impl Processor {
                             .label(&candidate_labels)
                         })
                         .collect();
+                    let jins_labels = |root: NoteSpelling, centre: NoteSpelling| {
+                        let label = |n: NoteSpelling| {
+                            naghma_core::notation::SpelledNote::new(n.degree, n.accidental, 4)
+                                .label(&labels)
+                        };
+                        JinsLabels {
+                            root: label(root),
+                            centre: label(centre),
+                        }
+                    };
+                    let active_jins_labels = analysis
+                        .active_jins
+                        .as_ref()
+                        .map(|j| jins_labels(j.root, j.centre));
+                    let foreign_jins_labels = analysis
+                        .foreign_jins
+                        .as_ref()
+                        .map(|j| jins_labels(j.root, j.centre));
                     messages.push(Message::Analysis {
                         analysis,
                         tonic_labels,
+                        active_jins_labels,
+                        foreign_jins_labels,
                     });
                 }
                 messages

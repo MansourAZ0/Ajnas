@@ -1271,6 +1271,31 @@ footer i {
 .analysis-panel .candidate:first-of-type {
   border-top: 0;
 }
+.jins-reading {
+  border: 1px solid #76bdb233;
+  background: #76bdb20a;
+  border-radius: 4px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.jins-reading .eyebrow {
+  color: var(--teal);
+  margin-bottom: 8px;
+}
+.jins-reading-name {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+.jins-reading-name strong {
+  font-weight: 500;
+  color: var(--text);
+}
+.jins-reading .fine-print {
+  margin-top: 6px;
+}
 
 /* Main column */
 .camera-panel {
