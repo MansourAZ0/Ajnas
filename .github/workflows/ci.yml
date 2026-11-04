@@ -12,7 +12,7 @@ jobs:
   frontend:
     runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Authenticate dependencies while repositories are private
         if: github.event.repository.private
         env:
@@ -45,7 +45,7 @@ jobs:
         os: [blacksmith-2vcpu-ubuntu-2404]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Authenticate dependencies while repositories are private
         if: github.event.repository.private
         env:
