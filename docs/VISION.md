@@ -228,6 +228,20 @@ the neck when the oud or the camera moves. It runs in a separate module worker
 - **Lost.** After 4 failed frames the neck counts as lost. Positions, fusion
   and the zand overlay then pause ("uncalibrated"), and the panel says so.
   Later frames keep trying the keyframe around the last pose.
+- **Re-finding.** Optical flow reaches only a few dozen pixels. From the
+  second failed frame, corners of the whole frame (hands excluded) are
+  matched to the latest keyframe and to the original reference by
+  appearance: 256-bit rotation-steered BRIEF descriptors, as in ORB, mutual
+  nearest neighbours with a ratio test. A RANSAC similarity must agree with
+  at least 12 matches, and 9×9 patches around the keyframe's points must
+  then correlate under that motion (≥ 12 points and ≥ 40% of those
+  compared). The frame then becomes the new keyframe. A sudden jump is
+  usually caught before the neck is ever reported lost.
+- **Anchoring.** Every new keyframe inherits the small error of the one
+  before. Once a second while following a later keyframe, and whenever a new
+  one is due, the original reference frame is followed directly from the
+  current pose; if it fits (≥ 45% of its points, within 28 px of the current
+  pose) the tracker returns to it and the accumulated error is gone.
 - **Noise.** Movement under 0.35 analysis pixels is ignored, so a still oud
   keeps exactly still corners.
 - **Saving.** Followed corners are written back to the saved calibration at
@@ -254,9 +268,32 @@ Measurements (2026-10-27, Apple M2):
   occluder, a brightness change, an unrelated view and recovery. The
   occluded-nut case keeps the corners within 0.6 px on a 240 px frame.
 
-The tracker cannot tell whether a lost neck has come back somewhere else
-entirely. A wrong saved calibration, for example after the oud moved between
-sessions, reads as lost rather than being corrected; recalibrate then.
+Re-finding and anchoring (2026-11-10, same machine, offline on 480 px frames
+at 15 fps, no hand boxes):
+
+- **Jumps.** Real frames of the Taqasim School clip were turned and shifted
+  by a known amount mid-clip (20°/45 px, −15°/52 px, 35°/32 px, 8°/70 px).
+  Before, the neck stayed lost in three of four cases and took 50 frames in
+  the fourth. Now it is followed again after 0–2 frames, corners within
+  1.4–2.5 px of the continuous track. On the darker Polat clip (52 reference
+  points) re-finding worked for two of four jumps, one only after 36 frames.
+- **Wrong scene.** With one clip's reference, 200 frames of the other clip
+  gave no fit in either direction, and the neck was followed at once when
+  its own clip returned.
+- **Drift.** Over the 45 s Polat clip the unanchored track stretched the
+  far (body) end of the board by 6 px while the nut end agreed within
+  1.7 px; drawn on the frame, the anchored board keeps its length. In the
+  synthetic turn-away-and-back test the corners end 0.0002 px from the
+  start with anchoring and 0.69 px without.
+- **Cost.** Following is unchanged (3.6–5.2 ms mean). A searching frame
+  costs about 40 ms, within the 66 ms frame interval; it runs only while
+  the neck is not being followed.
+
+Limits: descriptors are single-scale and compared with the keyframes held
+in memory, so an oud that returns much nearer or farther, or after a
+restart, is not re-found. A wrong saved calibration, for example after the
+oud moved between sessions, still reads as lost rather than being
+corrected; recalibrate then.
 
 ## Timestamping and conservative fusion
 

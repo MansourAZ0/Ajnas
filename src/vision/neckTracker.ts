@@ -11,6 +11,18 @@
  * frame-to-frame steps) keeps errors from compounding. When too few points
  * agree the neck is "lost"; each later frame then tries to re-find the
  * reference points around the last good pose.
+ *
+ * Two additions keep that honest over a long session:
+ *
+ * - Re-finding. Optical flow only reaches a few dozen pixels. When it fails,
+ *   corners of the whole frame are matched to the keyframes by appearance
+ *   (rotation-steered binary descriptors, as in ORB), wherever the oud now
+ *   is; a RANSAC similarity and a patch-by-patch brightness comparison must
+ *   both agree before the pose is accepted.
+ * - Anchoring. Each new keyframe inherits the small error of the one before.
+ *   Whenever the view is close to the original reference again, the tracker
+ *   returns to matching that frame directly, which removes the accumulated
+ *   error.
  */
 import {
   homography,
@@ -62,6 +74,18 @@ export interface NeckTrackerOptions {
   lostAfter: number;
   /** Corner movement below this (analysis pixels) is treated as noise. */
   deadBand: number;
+  /**
+   * Consecutive failed frames before the neck is searched for across the
+   * whole frame by appearance. 0 never searches.
+   */
+  refindAfter: number;
+  /** Fewest agreeing appearance matches that count as re-finding the neck. */
+  refindInliers: number;
+  /**
+   * Frames between attempts to return to the original reference frame while
+   * following a later keyframe. 0 never returns.
+   */
+  anchorEvery: number;
 }
 
 export const DEFAULT_NECK_OPTIONS: NeckTrackerOptions = {
@@ -73,6 +97,9 @@ export const DEFAULT_NECK_OPTIONS: NeckTrackerOptions = {
   minInliers: 12,
   lostAfter: 4,
   deadBand: 0.35,
+  refindAfter: 2,
+  refindInliers: 12,
+  anchorEvery: 15,
 };
 
 /** Board-coordinate region searched for points: beyond the nut and the end, and either side. */
@@ -440,6 +467,239 @@ export function fitSimilarity(
   return best.total >= minInliers ? { h: best.h, inliers: best.inliers } : null;
 }
 
+/** Points nearer the frame edge than this cannot be described. */
+export const DESCRIPTOR_BORDER = 20;
+const DESCRIPTOR_BITS = 256;
+const DESCRIPTOR_WORDS = DESCRIPTOR_BITS / 32;
+/** Radius of the patch whose brightness centroid gives a point's direction. */
+const ORIENTATION_RADIUS = 9;
+/** Rotations of the comparison pattern (12° apart). */
+const ORIENTATIONS = 30;
+
+/** Comparison pairs (x1, y1, x2, y2) within a 13-pixel radius, per rotation. */
+const PATTERNS: Int8Array[] = (() => {
+  const next = random(20261109);
+  // Roughly normal offsets (sum of uniforms), as in BRIEF.
+  const offset = () => {
+    for (;;) {
+      const v = (next() + next() + next() + next() - 2) * 9;
+      if (Math.abs(v) <= 9) return v;
+    }
+  };
+  const base = Array.from({ length: DESCRIPTOR_BITS * 4 }, offset);
+  return Array.from({ length: ORIENTATIONS }, (_, k) => {
+    const angle = (k * 2 * Math.PI) / ORIENTATIONS;
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    const out = new Int8Array(base.length);
+    for (let i = 0; i < base.length; i += 2) {
+      out[i] = Math.round(c * base[i] - s * base[i + 1]);
+      out[i + 1] = Math.round(s * base[i] + c * base[i + 1]);
+    }
+    return out;
+  });
+})();
+
+/** 5×5 box blur: descriptors compare smoothed brightness, not single pixels. */
+function blurred(g: Gray): Float32Array {
+  const { width, height, data } = g;
+  const pass = new Float32Array(width * height);
+  const out = new Float32Array(width * height);
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      let sum = 0;
+      for (let u = -2; u <= 2; u++)
+        sum += data[y * width + Math.min(width - 1, Math.max(0, x + u))];
+      pass[y * width + x] = sum / 5;
+    }
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      let sum = 0;
+      for (let v = -2; v <= 2; v++)
+        sum += pass[Math.min(height - 1, Math.max(0, y + v)) * width + x];
+      out[y * width + x] = sum / 5;
+    }
+  return out;
+}
+
+/** Points with a binary descriptor each (`DESCRIPTOR_WORDS` words per point). */
+export interface Described {
+  points: Point[];
+  bits: Uint32Array;
+}
+
+/**
+ * Rotation-steered BRIEF descriptors (the "rBRIEF" of ORB) at `points`, which
+ * must lie at least `DESCRIPTOR_BORDER` pixels inside the frame; others are
+ * dropped. Each point's direction is that of its patch's brightness centroid,
+ * so the same corner is described alike however the oud is turned.
+ */
+export function describe(image: Gray, points: readonly Point[]): Described {
+  const { width, height } = image;
+  const smooth = blurred(image);
+  const kept = points.filter(
+    (p) =>
+      p.x >= DESCRIPTOR_BORDER &&
+      p.y >= DESCRIPTOR_BORDER &&
+      p.x < width - DESCRIPTOR_BORDER &&
+      p.y < height - DESCRIPTOR_BORDER,
+  );
+  const bits = new Uint32Array(kept.length * DESCRIPTOR_WORDS);
+  kept.forEach((p, index) => {
+    const x = Math.round(p.x);
+    const y = Math.round(p.y);
+    let m10 = 0,
+      m01 = 0;
+    for (let v = -ORIENTATION_RADIUS; v <= ORIENTATION_RADIUS; v++)
+      for (let u = -ORIENTATION_RADIUS; u <= ORIENTATION_RADIUS; u++) {
+        if (u * u + v * v > ORIENTATION_RADIUS * ORIENTATION_RADIUS) continue;
+        const value = smooth[(y + v) * width + x + u];
+        m10 += u * value;
+        m01 += v * value;
+      }
+    const turn = Math.atan2(m01, m10) / (2 * Math.PI);
+    const pattern =
+      PATTERNS[
+        ((Math.round(turn * ORIENTATIONS) % ORIENTATIONS) + ORIENTATIONS) %
+          ORIENTATIONS
+      ];
+    for (let b = 0; b < DESCRIPTOR_BITS; b++) {
+      const i = b * 4;
+      const first = smooth[(y + pattern[i + 1]) * width + x + pattern[i]];
+      const second = smooth[(y + pattern[i + 3]) * width + x + pattern[i + 2]];
+      if (first < second)
+        bits[index * DESCRIPTOR_WORDS + (b >> 5)] |= 1 << (b & 31);
+    }
+  });
+  return { points: kept, bits };
+}
+
+function popcount(v: number): number {
+  v -= (v >>> 1) & 0x55555555;
+  v = (v & 0x33333333) + ((v >>> 2) & 0x33333333);
+  return (((v + (v >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24;
+}
+
+/**
+ * Pairs of points whose descriptors are each other's nearest (in differing
+ * bits), are similar enough, and are clearly nearer than the runner-up.
+ */
+export function matchDescriptors(
+  from: Described,
+  to: Described,
+  maxDistance = 64,
+  ratio = 0.85,
+): { from: Point; to: Point }[] {
+  const n = from.points.length;
+  const m = to.points.length;
+  if (!n || !m) return [];
+  const best = new Int32Array(n).fill(-1);
+  const bestDistance = new Int32Array(n).fill(DESCRIPTOR_BITS + 1);
+  const second = new Int32Array(n).fill(DESCRIPTOR_BITS + 1);
+  const reverse = new Int32Array(m).fill(-1);
+  const reverseDistance = new Int32Array(m).fill(DESCRIPTOR_BITS + 1);
+  for (let i = 0; i < n; i++)
+    for (let j = 0; j < m; j++) {
+      let d = 0;
+      for (let w = 0; w < DESCRIPTOR_WORDS; w++)
+        d += popcount(
+          from.bits[i * DESCRIPTOR_WORDS + w] ^
+            to.bits[j * DESCRIPTOR_WORDS + w],
+        );
+      if (d < bestDistance[i]) {
+        second[i] = bestDistance[i];
+        bestDistance[i] = d;
+        best[i] = j;
+      } else if (d < second[i]) second[i] = d;
+      if (d < reverseDistance[j]) {
+        reverseDistance[j] = d;
+        reverse[j] = i;
+      }
+    }
+  const out: { from: Point; to: Point }[] = [];
+  for (let i = 0; i < n; i++) {
+    const j = best[i];
+    if (
+      j >= 0 &&
+      reverse[j] === i &&
+      bestDistance[i] <= maxDistance &&
+      bestDistance[i] <= ratio * second[i]
+    )
+      out.push({ from: from.points[i], to: to.points[j] });
+  }
+  return out;
+}
+
+/**
+ * How alike two frames look around `points` once `h` maps the first onto the
+ * second: the number of points whose 9×9 patches correlate (zero-mean
+ * normalised correlation of at least `enough`), and how many could be
+ * compared. Independent of how `h` was found, so it catches a pose that fits
+ * a few chance matches but not the picture.
+ */
+export function patchAgreement(
+  a: Gray,
+  b: Gray,
+  points: readonly Point[],
+  h: Homography,
+  enough = 0.6,
+): { agree: number; compared: number } {
+  const half = 4;
+  // Rotation and scale of `h` at each point (exact for a similarity).
+  const sx = h[0],
+    sy = h[3],
+    tx = h[1],
+    ty = h[4];
+  let agree = 0,
+    compared = 0;
+  for (const p of points) {
+    const q = transformPoint(h, p);
+    if (
+      !q ||
+      p.x < half + 1 ||
+      p.y < half + 1 ||
+      p.x > a.width - half - 2 ||
+      p.y > a.height - half - 2 ||
+      q.x < 2 * half ||
+      q.y < 2 * half ||
+      q.x > b.width - 2 * half - 1 ||
+      q.y > b.height - 2 * half - 1
+    )
+      continue;
+    let sa = 0,
+      sb = 0,
+      saa = 0,
+      sbb = 0,
+      sab = 0,
+      n = 0;
+    for (let v = -half; v <= half; v++)
+      for (let u = -half; u <= half; u++) {
+        const va = bilinear(a.data, a.width, a.height, p.x + u, p.y + v);
+        const vb = bilinear(
+          b.data,
+          b.width,
+          b.height,
+          q.x + sx * u + tx * v,
+          q.y + sy * u + ty * v,
+        );
+        sa += va;
+        sb += vb;
+        saa += va * va;
+        sbb += vb * vb;
+        sab += va * vb;
+        n++;
+      }
+    const variance = (saa - (sa * sa) / n) * (sbb - (sb * sb) / n);
+    compared++;
+    if (
+      variance > 1e-6 &&
+      (sab - (sa * sb) / n) / Math.sqrt(variance) >= enough
+    )
+      agree++;
+  }
+  return { agree, compared };
+}
+
 function insideConvex(
   polygon: readonly Point[],
   x: number,
@@ -476,11 +736,17 @@ interface Keyframe {
   points: Point[];
   /** Reference → this keyframe. */
   pose: Homography;
+  /** The points' descriptors, made the first time the neck must be re-found. */
+  described?: Described;
 }
 
 export class NeckTracker {
   private options: NeckTrackerOptions;
   private key: Keyframe | null = null;
+  /** The reference frame itself (pose = identity): never replaced. */
+  private origin: Keyframe | null = null;
+  /** Frames since the last attempt to return to `origin`. */
+  private sinceAnchor = 0;
   /** Calibration corners in reference analysis pixels. */
   private referenceCorners: Point[] = [];
   private size = { width: 1, height: 1 };
@@ -500,6 +766,7 @@ export class NeckTracker {
 
   reset() {
     this.key = null;
+    this.origin = null;
     this.status = "lost";
   }
 
@@ -517,6 +784,7 @@ export class NeckTracker {
     if (!frame) return 0;
     const previous = {
       key: this.key,
+      origin: this.origin,
       corners: this.referenceCorners,
       size: this.size,
     };
@@ -534,8 +802,12 @@ export class NeckTracker {
       exclude,
     );
     const found = this.key.points.length;
+    this.origin = this.key;
+    this.motion = IDENTITY;
+    this.sinceAnchor = 0;
     if (found < MIN_REFERENCE_POINTS) {
       this.key = previous.key;
+      this.origin = previous.origin;
       this.referenceCorners = previous.corners;
       this.size = previous.size;
       this.shown = previous.corners;
@@ -574,19 +846,55 @@ export class NeckTracker {
       minInliers,
     );
     if (!fit) {
-      if (++this.failures >= this.options.lostAfter) this.status = "lost";
-      return this.result(0, pairs.length);
+      this.failures++;
+      const { refindAfter } = this.options;
+      const refound =
+        refindAfter > 0 && this.failures >= refindAfter
+          ? this.refind(frame, levels, exclude)
+          : null;
+      if (!refound) {
+        if (this.failures >= this.options.lostAfter) this.status = "lost";
+        return this.result(0, pairs.length);
+      }
+      this.failures = 0;
+      this.status = "tracking";
+      this.show(refound.pose);
+      return this.result(refound.inliers, refound.points);
     }
     this.failures = 0;
     this.status = "tracking";
     this.motion = fit.h;
-    const pose = compose(fit.h, key.pose);
-    const inliers = fit.inliers.filter(Boolean).length;
+    let pose = compose(fit.h, key.pose);
+    let inliers = fit.inliers.filter(Boolean).length;
+    let followed = pairs.length;
+    const stale = inliers < key.points.length * 0.45;
+    // Back near the original view: match the reference frame itself again,
+    // dropping whatever error the keyframes in between had gathered.
+    const { anchorEvery } = this.options;
+    if (
+      key !== this.origin &&
+      anchorEvery > 0 &&
+      (stale || ++this.sinceAnchor >= anchorEvery)
+    ) {
+      this.sinceAnchor = 0;
+      const anchored = this.anchor(frame, levels, pose, exclude);
+      if (anchored) {
+        ({ pose, inliers } = anchored);
+        followed = anchored.points;
+      }
+    }
     // The view has changed too much for the keyframe: start a new one here.
-    if (inliers < key.points.length * 0.45) {
+    if (this.key === key && stale) {
       this.key = this.keyframe(levels, pose, exclude);
       this.motion = IDENTITY;
+      this.sinceAnchor = 0;
     }
+    this.show(pose);
+    return this.result(inliers, followed);
+  }
+
+  /** Carries the calibration corners by `pose`, ignoring sub-pixel noise. */
+  private show(pose: Homography) {
     const corners = this.referenceCorners.map(
       (p) => transformPoint(pose, p) ?? p,
     );
@@ -596,7 +904,126 @@ export class NeckTracker {
         this.options.deadBand,
     );
     if (!still) this.shown = corners;
-    return this.result(inliers, pairs.length);
+  }
+
+  /**
+   * Tries to follow the original reference frame directly, predicted by the
+   * current `pose`. Succeeds only while the view is close to the original.
+   */
+  private anchor(
+    frame: Gray,
+    levels: Level[],
+    pose: Homography,
+    exclude: readonly Box[],
+  ): { pose: Homography; inliers: number; points: number } | null {
+    const origin = this.origin;
+    if (!origin) return null;
+    const { window, threshold, minInliers } = this.options;
+    const guesses = origin.points.map((p) => transformPoint(pose, p) ?? p);
+    const found = trackPoints(
+      origin.levels,
+      levels,
+      origin.points,
+      guesses,
+      window,
+    );
+    const pairs = origin.points
+      .map((from, i) => ({ from, to: found[i] }))
+      .filter(
+        (pair): pair is { from: Point; to: Point } =>
+          !!pair.to && !this.excluded(pair.to, frame, exclude),
+      );
+    const fit = fitSimilarity(
+      pairs.map((p) => p.from),
+      pairs.map((p) => p.to),
+      threshold,
+      Math.max(minInliers, Math.ceil(origin.points.length * 0.45)),
+    );
+    if (!fit) return null;
+    // The two readings of the same frame must agree: a fit elsewhere is not
+    // a correction.
+    const apart = this.referenceCorners.reduce((max, p) => {
+      const a = transformPoint(fit.h, p);
+      const b = transformPoint(pose, p);
+      return a && b
+        ? Math.max(max, Math.hypot(a.x - b.x, a.y - b.y))
+        : Infinity;
+    }, 0);
+    if (!(apart <= 4 * this.options.window)) return null;
+    this.key = origin;
+    this.motion = fit.h;
+    return {
+      pose: fit.h,
+      inliers: fit.inliers.filter(Boolean).length,
+      points: pairs.length,
+    };
+  }
+
+  /**
+   * Looks for the neck anywhere in the frame by appearance: the latest
+   * keyframe first (it looks most like now), then the original reference.
+   * On success the frame becomes the new keyframe.
+   */
+  private refind(
+    frame: Gray,
+    levels: Level[],
+    exclude: readonly Box[],
+  ): { pose: Homography; inliers: number; points: number } | null {
+    const border = DESCRIPTOR_BORDER;
+    const here = describe(
+      frame,
+      goodFeatures(
+        levels[0],
+        4 * this.options.maxPoints,
+        5,
+        (x, y) =>
+          x >= border &&
+          y >= border &&
+          x < frame.width - border &&
+          y < frame.height - border &&
+          !this.excluded({ x, y }, frame, exclude),
+      ),
+    );
+    const { refindInliers } = this.options;
+    if (here.points.length < refindInliers) return null;
+    const anchors = [this.key, this.origin].filter(
+      (k, i, all): k is Keyframe => !!k && all.indexOf(k) === i,
+    );
+    for (const anchor of anchors) {
+      anchor.described ??= describe(anchor.levels[0].image, anchor.points);
+      const matches = matchDescriptors(anchor.described, here);
+      const fit = fitSimilarity(
+        matches.map((m) => m.from),
+        matches.map((m) => m.to),
+        2 * this.options.threshold,
+        refindInliers,
+        400,
+      );
+      if (!fit) continue;
+      // An oud does not turn upside down or change size several-fold.
+      const scale = Math.hypot(fit.h[0], fit.h[3]);
+      if (!(scale > 0.5 && scale < 2)) continue;
+      const seen = patchAgreement(
+        anchor.levels[0].image,
+        frame,
+        anchor.points,
+        fit.h,
+      );
+      if (seen.agree < refindInliers || seen.agree < 0.4 * seen.compared)
+        continue;
+      const pose = compose(fit.h, anchor.pose);
+      const key = this.keyframe(levels, pose, exclude);
+      if (key.points.length < refindInliers) continue;
+      this.key = key;
+      this.motion = IDENTITY;
+      this.sinceAnchor = 0;
+      return {
+        pose,
+        inliers: fit.inliers.filter(Boolean).length,
+        points: matches.length,
+      };
+    }
+    return null;
   }
 
   private keyframe(

@@ -8,7 +8,10 @@ import {
 } from "./geometry";
 import {
   NeckTracker,
+  describe as describePoints,
   fitSimilarity,
+  matchDescriptors,
+  patchAgreement,
   goodFeatures,
   MIN_REFERENCE_POINTS,
   handBox,
@@ -245,6 +248,155 @@ describe("NeckTracker", () => {
         0.6,
       ),
     );
+  });
+});
+
+describe("appearance matching", () => {
+  it("matches corners of a view turned by 30° and shifted", () => {
+    const a = texture(31);
+    const h = motion(30, 1, 12, -6);
+    const b = warp(a, h);
+    const inside = (x: number, y: number) =>
+      x > 45 && y > 40 && x < W - 45 && y < H - 40;
+    const from = describePoints(
+      a,
+      goodFeatures(pyramid(a, 0)[0], 60, 6, inside),
+    );
+    const to = describePoints(
+      b,
+      goodFeatures(
+        pyramid(b, 0)[0],
+        300,
+        4,
+        (x, y) => x > 20 && y > 20 && x < W - 20 && y < H - 20,
+      ),
+    );
+    const matches = matchDescriptors(from, to);
+    const right = matches.filter((m) => {
+      const q = transformPoint(h, m.from)!;
+      return Math.hypot(q.x - m.to.x, q.y - m.to.y) < 2;
+    });
+    expect(matches.length).toBeGreaterThan(15);
+    expect(right.length / matches.length).toBeGreaterThan(0.7);
+  });
+
+  it("compares patches under the claimed motion", () => {
+    const a = texture(31);
+    const h = motion(20, 1.05, 8, 5);
+    const b = warp(a, h);
+    const points = goodFeatures(
+      pyramid(a, 0)[0],
+      50,
+      6,
+      (x, y) => x > 50 && y > 45 && x < W - 50 && y < H - 45,
+    );
+    const right = patchAgreement(a, b, points, h);
+    expect(right.agree).toBeGreaterThan(0.9 * right.compared);
+    const wrong = patchAgreement(a, b, points, motion(20, 1.05, 20, 5));
+    expect(wrong.agree).toBeLessThan(0.2 * wrong.compared);
+  });
+});
+
+describe("re-finding a lost neck", () => {
+  const errors = (corners: readonly Point[], h: Homography) =>
+    pixels(corners).map((p, i) => {
+      const expected = transformPoint(h, pixels(neck)[i])!;
+      return Math.hypot(p.x - expected.x, p.y - expected.y);
+    });
+
+  it("finds the neck again far from where it was, turned", () => {
+    const base = texture(21);
+    const tracker = new NeckTracker();
+    tracker.setReference(base, neck);
+    expect(tracker.update(base).status).toBe("tracking");
+    // Out of view for a while ...
+    const other = texture(99);
+    let result = tracker.update(other);
+    for (let i = 0; i < 6; i++) result = tracker.update(other);
+    expect(result.status).toBe("lost");
+    // ... and back 30 pixels away, turned by 25°: beyond optical flow.
+    const h = motion(25, 1, 26, -14);
+    const moved = warp(base, h);
+    result = tracker.update(moved);
+    expect(result.status).toBe("tracking");
+    expect(Math.max(...errors(result.corners!, h))).toBeLessThan(2.5);
+    // Following continues from there.
+    const next = motion(26, 1, 27.5, -13);
+    result = tracker.update(warp(base, next));
+    expect(result.status).toBe("tracking");
+    expect(Math.max(...errors(result.corners!, next))).toBeLessThan(2.5);
+  });
+
+  it("recovers from a sudden jump without ever reporting lost", () => {
+    const base = texture(7);
+    const tracker = new NeckTracker();
+    tracker.setReference(base, neck);
+    const h = motion(-18, 1, -28, 12);
+    const moved = warp(base, h);
+    const statuses: string[] = [];
+    let result = tracker.update(moved);
+    statuses.push(result.status);
+    for (let i = 0; i < 3 && result.inliers === 0; i++) {
+      result = tracker.update(moved);
+      statuses.push(result.status);
+    }
+    expect(statuses).not.toContain("lost");
+    expect(result.inliers).toBeGreaterThan(0);
+    expect(Math.max(...errors(result.corners!, h))).toBeLessThan(2.5);
+  });
+
+  it("does not find the neck in a different scene", () => {
+    const tracker = new NeckTracker();
+    tracker.setReference(texture(21), neck);
+    for (const seed of [99, 100, 101, 102, 103, 104, 105, 106]) {
+      const result = tracker.update(texture(seed));
+      expect(result.inliers).toBe(0);
+    }
+    expect(tracker.update(texture(107)).status).toBe("lost");
+  });
+
+  it("can be switched off", () => {
+    const base = texture(21);
+    const tracker = new NeckTracker({ refindAfter: 0 });
+    tracker.setReference(base, neck);
+    const moved = warp(base, motion(25, 1, 26, -14));
+    let result = tracker.update(moved);
+    for (let i = 0; i < 5; i++) result = tracker.update(moved);
+    expect(result.status).toBe("lost");
+  });
+});
+
+describe("anchoring to the reference", () => {
+  it("returns to the original frame, shedding the error of later keyframes", () => {
+    const base = texture(13);
+    const run = (anchorEvery: number) => {
+      const tracker = new NeckTracker({ anchorEvery });
+      tracker.setReference(base, neck);
+      let result = tracker.update(base);
+      // Turn away far enough to need new keyframes, then come back.
+      const path = [
+        ...Array.from({ length: 16 }, (_, i) => i + 1),
+        ...Array.from({ length: 16 }, (_, i) => 15 - i),
+      ];
+      for (const step of path) {
+        result = tracker.update(
+          warp(
+            base,
+            motion(step * 1.6, 1 + step * 0.004, step * 1.2, -step * 0.7),
+          ),
+        );
+        expect(result.status).toBe("tracking");
+      }
+      result = tracker.update(base);
+      return Math.max(
+        ...pixels(result.corners!).map((p, i) =>
+          Math.hypot(p.x - pixels(neck)[i].x, p.y - pixels(neck)[i].y),
+        ),
+      );
+    };
+    const anchored = run(1);
+    expect(anchored).toBeLessThan(0.15);
+    expect(anchored).toBeLessThanOrEqual(run(0) + 1e-9);
   });
 });
 
