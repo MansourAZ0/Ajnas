@@ -6,7 +6,7 @@ use naghma_core::instrument::FingerPosition;
 use naghma_core::interpret::NoteView;
 use naghma_core::maqam::{
     MaqamDataset,
-    analysis::{MaqamAnalysis, MaqamAnalyzer},
+    analysis::{MaqamAnalysis, MaqamAnalyzer, MaqamCandidate},
 };
 use naghma_core::notation::NoteLabel;
 use naghma_core::tracking::LiveState;
@@ -58,6 +58,9 @@ pub enum Message {
         /// Root and tonal centre of `analysis.foreignJins`, if any.
         #[serde(rename = "foreignJinsLabels")]
         foreign_jins_labels: Option<JinsLabels>,
+        /// Tonics of `analysis.performance.candidates`, in the same order.
+        #[serde(rename = "performanceTonicLabels")]
+        performance_tonic_labels: Vec<NoteLabel>,
     },
     Error {
         message: String,
@@ -126,19 +129,22 @@ impl Processor {
                         self.settings.maqam.tonic,
                         now,
                     );
-                    let tonic_labels = analysis
-                        .candidates
+                    let tonic_label = |c: &MaqamCandidate| {
+                        let mut candidate_labels = labels;
+                        candidate_labels.show_octave = c.tonic_octave.is_some();
+                        naghma_core::notation::SpelledNote::new(
+                            c.tonic.degree,
+                            c.tonic.accidental,
+                            c.tonic_octave.unwrap_or(3),
+                        )
+                        .label(&candidate_labels)
+                    };
+                    let tonic_labels = analysis.candidates.iter().map(tonic_label).collect();
+                    let performance_tonic_labels = analysis
+                        .performance
                         .iter()
-                        .map(|c| {
-                            let mut candidate_labels = labels;
-                            candidate_labels.show_octave = c.tonic_octave.is_some();
-                            naghma_core::notation::SpelledNote::new(
-                                c.tonic.degree,
-                                c.tonic.accidental,
-                                c.tonic_octave.unwrap_or(3),
-                            )
-                            .label(&candidate_labels)
-                        })
+                        .flat_map(|p| &p.candidates)
+                        .map(tonic_label)
                         .collect();
                     let jins_labels = |root: NoteSpelling, centre: NoteSpelling| {
                         let label = |n: NoteSpelling| {
@@ -163,6 +169,7 @@ impl Processor {
                         tonic_labels,
                         active_jins_labels,
                         foreign_jins_labels,
+                        performance_tonic_labels,
                     });
                 }
                 messages
@@ -296,11 +303,23 @@ mod tests {
         let mut p = Processor::new(settings.clone(), Some(Arc::new(dataset)));
         let mut max_notes = 0;
         let mut ranked = false;
+        let mut performance = false;
         for frame in frames {
             for message in p.event(EngineEvent::Frame(frame)) {
-                if let Message::Analysis { analysis, .. } = message {
+                if let Message::Analysis {
+                    analysis,
+                    performance_tonic_labels,
+                    ..
+                } = message
+                {
                     max_notes = max_notes.max(analysis.notes);
                     ranked |= !analysis.candidates.is_empty();
+                    let whole = analysis.performance.as_ref();
+                    assert_eq!(
+                        performance_tonic_labels.len(),
+                        whole.map_or(0, |p| p.candidates.len())
+                    );
+                    performance |= whole.is_some();
                 }
             }
         }
@@ -309,6 +328,7 @@ mod tests {
             "normal endings must be collected: {max_notes}"
         );
         assert!(ranked);
+        assert!(performance, "the piece as a whole is read too");
         settings.maqam.enabled = false;
         p.configure(settings);
         assert_eq!(p.analyzer.history().count(), 0);

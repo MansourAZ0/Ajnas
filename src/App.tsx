@@ -196,6 +196,7 @@ export default function App() {
           ...message.analysis,
           tonicLabels: message.tonicLabels,
           activeJinsLabels: message.activeJinsLabels,
+          performanceTonicLabels: message.performanceTonicLabels,
           foreignJinsLabels: message.foreignJinsLabels,
         });
         setMaqamLog((log) =>

@@ -76,6 +76,58 @@ function JinsReading({
   );
 }
 
+/**
+ * The maqam of the piece as a whole. It stays put while a passage visits
+ * another maqam, and through pauses too sparse for the short reading.
+ */
+function PerformanceReading({
+  analysis,
+  dataset,
+  arabic,
+  tr,
+}: {
+  analysis: Analysis;
+  dataset: Dataset;
+  arabic: boolean;
+  tr: Tr;
+}) {
+  const reading = analysis.performance;
+  const leader = reading?.candidates[0];
+  if (!reading || !leader || reading.status === "unknown") return null;
+  const lang = arabic ? "arabic" : "latin";
+  const name = (id: string) =>
+    dataset.maqamat.find((m) => m.id === id)?.name[lang] ?? id;
+  const labels = analysis.performanceTonicLabels;
+  const second = reading.candidates[1];
+  const seconds = Math.max(0, reading.window[1] - reading.window[0]);
+  const heard =
+    seconds >= 90
+      ? `${Math.round(seconds / 60)} ${tr("min", "د")}`
+      : `${Math.round(seconds)} ${tr("s", "ث")}`;
+  return (
+    <div className="jins-reading performance-reading" aria-live="polite">
+      <p className="eyebrow">{tr("MAQAM OF THIS PIECE", "مقام هذه القطعة")}</p>
+      <div className="jins-reading-name">
+        <strong>
+          {name(leader.maqam)} {tr("on", "على")} {labels?.[0]?.text ?? "—"}
+        </strong>
+        <span className="tag">
+          {reading.status === "likely"
+            ? tr("Likely", "مرجّح")
+            : tr("Close call", "متقارب")}
+        </span>
+      </div>
+      <p className="fine-print">
+        {reading.status === "ambiguous" && second
+          ? `${tr("or", "أو")} ${name(second.maqam)} ${tr("on", "على")} ${labels?.[1]?.text ?? "—"} · `
+          : ""}
+        {tr("from the last", "من آخر")} {heard} · {reading.notes}{" "}
+        {tr("notes", "نغمة")}
+      </p>
+    </div>
+  );
+}
+
 export function DatasetSource({
   dataset,
   arabic,
@@ -186,6 +238,14 @@ export const MaqamHypotheses = memo(function MaqamHypotheses({
                 )
               : tr("Waiting for analysis…", "بانتظار التحليل…")}
           </p>
+          {analysis && (
+            <PerformanceReading
+              analysis={analysis}
+              dataset={dataset}
+              arabic={arabic}
+              tr={tr}
+            />
+          )}
           {analysis && (
             <JinsReading
               analysis={analysis}

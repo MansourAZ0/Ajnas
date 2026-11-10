@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+- "Maqam of this piece": the maqam of the whole performance so far, shown
+  above the jins reading (naghma-core/naghma-audio v0.8.0). It stays put
+  while a passage visits another maqam, and a silence of 20 s starts a new
+  piece. On full-length recordings it names the stated maqam at the end in
+  91% (development) and 84% (held-out) of them, against 57% and 55% for the
+  ten-second reading.
+
 ### Changed
 - naghma-core/naghma-audio v0.7.0: a passage in a maqam's upper jins is
   read as that jins, not as another maqam (Hijaz's upper Nahawand on Sol no

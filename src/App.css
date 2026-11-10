@@ -1296,6 +1296,9 @@ footer i {
 .jins-reading .fine-print {
   margin-top: 6px;
 }
+.performance-reading .jins-reading-name {
+  font-size: 15px;
+}
 
 /* Main column */
 .camera-panel {

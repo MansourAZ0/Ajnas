@@ -77,7 +77,7 @@ Tauri IPC mock (`src/dev/mockTauri.ts`; options `lang=ar`, `maqam=off`,
 backend and is excluded from production builds.
 
 The dataset schema and validation rules are documented in
-[naghma-core's maqam module](https://github.com/MansourAZ0/naghma-core/tree/v0.7.0/crates/naghma-core/src/maqam).
+[naghma-core's maqam module](https://github.com/MansourAZ0/naghma-core/tree/v0.8.0/crates/naghma-core/src/maqam).
 Import is limited to 2 MiB and uses a native file picker. Invalid imports leave
 the current dataset intact.
 
