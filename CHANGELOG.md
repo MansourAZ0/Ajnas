@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Added
+- Camera: a lost neck is found again by appearance wherever it returns in
+  the picture (turned up to a quarter turn, between half and twice the
+  size), usually within two frames of a sudden jump, without recalibrating.
+  The tracker also returns to the calibration frame whenever the view is
+  close to it, which removes drift built up over a long session.
 - "Maqam of this piece": the maqam of the whole performance so far, shown
   above the jins reading (naghma-core/naghma-audio v0.8.0). It stays put
   while a passage visits another maqam, and a silence of 20 s starts a new
