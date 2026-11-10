@@ -6,6 +6,9 @@
 - Camera: a lost neck is found again by appearance wherever it returns in
   the picture (turned up to a quarter turn, between half and twice the
   size), usually within two frames of a sudden jump, without recalibrating.
+  The oud around the neck is what is recognised (pegbox, face, rosettes),
+  so this also works with a hand over the neck; the pose is then checked
+  and settled on the neck itself.
   The tracker also returns to the calibration frame whenever the view is
   close to it, which removes drift built up over a long session.
 - "Maqam of this piece": the maqam of the whole performance so far, shown
