@@ -237,6 +237,10 @@ the neck when the oud or the camera moves. It runs in a separate module worker
   then correlate under that motion (≥ 12 points and ≥ 40% of those
   compared). The frame then becomes the new keyframe. A sudden jump is
   usually caught before the neck is ever reported lost.
+  A pose turned more than a quarter turn from calibration, or scaled beyond
+  0.5–2×, is refused. After 30 failed frames (two seconds) only every fourth
+  frame is searched, so an oud that has been put down does not keep a core
+  busy.
 - **Anchoring.** Every new keyframe inherits the small error of the one
   before. Once a second while following a later keyframe, and whenever a new
   one is due, the original reference frame is followed directly from the

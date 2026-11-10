@@ -355,6 +355,33 @@ describe("re-finding a lost neck", () => {
     expect(tracker.update(texture(107)).status).toBe("lost");
   });
 
+  it("still finds the neck after a long absence, within a few frames", () => {
+    const base = texture(21);
+    const tracker = new NeckTracker();
+    tracker.setReference(base, neck);
+    const other = texture(99);
+    for (let i = 0; i < 45; i++) tracker.update(other);
+    const h = motion(25, 1, 26, -14);
+    const moved = warp(base, h);
+    let result = tracker.update(moved);
+    let frames = 1;
+    for (; frames < 4 && result.status !== "tracking"; frames++)
+      result = tracker.update(moved);
+    expect(result.status).toBe("tracking");
+    expect(Math.max(...errors(result.corners!, h))).toBeLessThan(2.5);
+  });
+
+  it("does not accept the neck upside down", () => {
+    const base = texture(21);
+    const tracker = new NeckTracker();
+    tracker.setReference(base, neck);
+    // Found readily without the rule: the descriptors follow any rotation.
+    const flipped = warp(base, motion(150, 1, 0, 0));
+    let result = tracker.update(flipped);
+    for (let i = 0; i < 6; i++) result = tracker.update(flipped);
+    expect(result.status).toBe("lost");
+  });
+
   it("can be switched off", () => {
     const base = texture(21);
     const tracker = new NeckTracker({ refindAfter: 0 });

@@ -731,6 +731,11 @@ function compose(a: Homography, b: Homography): Homography {
 const IDENTITY: Homography = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 
 /** A frame whose points every later frame is matched against directly. */
+/** Failed frames during which every frame is searched for the neck. */
+const REFIND_EAGER_FRAMES = 30;
+/** After that, one frame in this many is searched. */
+const REFIND_SPARSE_EVERY = 4;
+
 interface Keyframe {
   levels: Level[];
   points: Point[];
@@ -802,16 +807,16 @@ export class NeckTracker {
       exclude,
     );
     const found = this.key.points.length;
-    this.origin = this.key;
-    this.motion = IDENTITY;
-    this.sinceAnchor = 0;
     if (found < MIN_REFERENCE_POINTS) {
       this.key = previous.key;
-      this.origin = previous.origin;
       this.referenceCorners = previous.corners;
       this.size = previous.size;
       this.shown = previous.corners;
       this.status = previous.key ? this.status : "lost";
+    } else {
+      this.origin = this.key;
+      this.motion = IDENTITY;
+      this.sinceAnchor = 0;
     }
     return found;
   }
@@ -848,10 +853,14 @@ export class NeckTracker {
     if (!fit) {
       this.failures++;
       const { refindAfter } = this.options;
-      const refound =
-        refindAfter > 0 && this.failures >= refindAfter
-          ? this.refind(frame, levels, exclude)
-          : null;
+      // Searching costs far more than following, so once the neck has been
+      // gone a while (two seconds) only every fourth frame is searched.
+      const searching =
+        refindAfter > 0 &&
+        this.failures >= refindAfter &&
+        (this.failures < REFIND_EAGER_FRAMES ||
+          this.failures % REFIND_SPARSE_EVERY === 0);
+      const refound = searching ? this.refind(frame, levels, exclude) : null;
       if (!refound) {
         if (this.failures >= this.options.lostAfter) this.status = "lost";
         return this.result(0, pairs.length);
@@ -1000,9 +1009,11 @@ export class NeckTracker {
         400,
       );
       if (!fit) continue;
-      // An oud does not turn upside down or change size several-fold.
+      // An oud does not change size several-fold or turn upside down (more
+      // than a quarter turn from where it was calibrated).
       const scale = Math.hypot(fit.h[0], fit.h[3]);
       if (!(scale > 0.5 && scale < 2)) continue;
+      if (!(compose(fit.h, anchor.pose)[0] > 0)) continue;
       const seen = patchAgreement(
         anchor.levels[0].image,
         frame,
