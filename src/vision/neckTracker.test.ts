@@ -17,6 +17,7 @@ import {
   handBox,
   normalise,
   pyramid,
+  strongestCorners,
   trackPoints,
   type Gray,
 } from "./neckTracker";
@@ -297,6 +298,26 @@ describe("appearance matching", () => {
   });
 });
 
+describe("corners for searching", () => {
+  it("gives the strongest corner of each block, where allowed", () => {
+    const [level] = pyramid(texture(5), 1);
+    const all = strongestCorners(level, 1000, 10, () => true);
+    // One per 10-pixel block at most, strongest first, none twice.
+    expect(all.length).toBeGreaterThan(100);
+    expect(all.length).toBeLessThanOrEqual((W / 10) * (H / 10));
+    const blocks = new Set(
+      all.map((p) => `${Math.floor(p.x / 10)},${Math.floor(p.y / 10)}`),
+    );
+    expect(blocks.size).toBe(all.length);
+    expect(strongestCorners(level, 20, 10, () => true)).toEqual(
+      all.slice(0, 20),
+    );
+    const left = strongestCorners(level, 1000, 10, (x) => x < W / 2);
+    expect(left.length).toBeGreaterThan(40);
+    expect(left.every((p) => p.x < W / 2)).toBe(true);
+  });
+});
+
 describe("re-finding a lost neck", () => {
   const errors = (corners: readonly Point[], h: Homography) =>
     pixels(corners).map((p, i) => {
@@ -380,6 +401,44 @@ describe("re-finding a lost neck", () => {
     let result = tracker.update(flipped);
     for (let i = 0; i < 6; i++) result = tracker.update(flipped);
     expect(result.status).toBe("lost");
+  });
+
+  it("finds an oud that moved while the room behind it stayed put", () => {
+    // The oud: a block around the neck with its own texture; the room: the
+    // rest, and the larger part of the picture.
+    const room = texture(55);
+    const oud = texture(21);
+    const inside = (x: number, y: number) =>
+      x > 0.125 * W && x < 0.83 * W && y > 0.27 * H && y < 0.7 * H;
+    const scene = (h: Homography | null): Gray => {
+      const back = h
+        ? homography(
+            [0, 1, 2, 3].map((i) =>
+              transformPoint(h, corner(i))!,
+            ) as unknown as Quadrilateral,
+            [0, 1, 2, 3].map(corner) as unknown as Quadrilateral,
+          )
+        : null;
+      const data = new Float32Array(W * H);
+      for (let y = 0; y < H; y++)
+        for (let x = 0; x < W; x++) {
+          const p = back ? transformPoint(back, { x, y })! : { x, y };
+          data[y * W + x] = inside(p.x, p.y)
+            ? sample(oud, p.x, p.y)
+            : room.data[y * W + x];
+        }
+      return { width: W, height: H, data };
+    };
+    const tracker = new NeckTracker();
+    tracker.setReference(scene(null), neck);
+    expect(tracker.update(scene(null)).status).toBe("tracking");
+    const h = motion(20, 1, 30, -12);
+    const moved = scene(h);
+    let result = tracker.update(moved);
+    for (let i = 0; i < 3 && result.inliers === 0; i++)
+      result = tracker.update(moved);
+    expect(result.inliers).toBeGreaterThan(0);
+    expect(Math.max(...errors(result.corners!, h))).toBeLessThan(2.5);
   });
 
   it("can be switched off", () => {

@@ -17,8 +17,11 @@
  * - Re-finding. Optical flow only reaches a few dozen pixels. When it fails,
  *   corners of the whole frame are matched to the keyframes by appearance
  *   (rotation-steered binary descriptors, as in ORB), wherever the oud now
- *   is; a RANSAC similarity and a patch-by-patch brightness comparison must
- *   both agree before the pose is accepted.
+ *   is. A handful of agreeing matches give a rough pose; the frame is then
+ *   resampled to undo it and the keyframe's points are followed into the
+ *   result as in ordinary tracking, which both checks the pose and refines
+ *   it. A patch-by-patch brightness comparison must agree as well. The same
+ *   search runs after a leap between two frames, where flow is least sure.
  * - Anchoring. Each new keyframe inherits the small error of the one before.
  *   Whenever the view is close to the original reference again, the tracker
  *   returns to matching that frame directly, which removes the accumulated
@@ -79,7 +82,11 @@ export interface NeckTrackerOptions {
    * whole frame by appearance. 0 never searches.
    */
   refindAfter: number;
-  /** Fewest agreeing appearance matches that count as re-finding the neck. */
+  /**
+   * Fewest agreeing appearance matches that give a rough pose worth
+   * checking. The pose is accepted only if the keyframe's points can then
+   * be followed into the frame.
+   */
   refindInliers: number;
   /**
    * Frames between attempts to return to the original reference frame while
@@ -98,12 +105,19 @@ export const DEFAULT_NECK_OPTIONS: NeckTrackerOptions = {
   lostAfter: 4,
   deadBand: 0.35,
   refindAfter: 2,
-  refindInliers: 12,
+  refindInliers: 6,
   anchorEvery: 15,
 };
 
 /** Board-coordinate region searched for points: beyond the nut and the end, and either side. */
 const REGION = { along: [-0.3, 1.2], across: [-0.45, 1.45] } as const;
+
+/**
+ * The part of the oud described for re-finding, in neck lengths from the
+ * nut along the neck (the pegbox is behind the nut, the face beyond the
+ * neck's end) and in neck widths either side of its centre line.
+ */
+const SURROUNDINGS = { along: [-1, 3], across: 3 } as const;
 
 export function grayFromRGBA(
   rgba: ArrayLike<number>,
@@ -273,6 +287,86 @@ export function goodFeatures(
     out.push({ x: c.x, y: c.y });
   }
   return out;
+}
+
+/**
+ * The strongest Shi–Tomasi corner of each `cell`×`cell` block of the image,
+ * strongest first: `goodFeatures` for a whole frame at a fraction of the
+ * cost (box sums, one candidate per block), for searching rather than
+ * following.
+ */
+export function strongestCorners(
+  level: Level,
+  maxPoints: number,
+  cell: number,
+  accept: (x: number, y: number) => boolean,
+): Point[] {
+  const { width, height } = level.image;
+  const { dx, dy } = level;
+  const n = width * height;
+  // 5×5 sums of the gradient products: across, then down.
+  const sums = [0, 1, 2].map((which) => {
+    const across = new Float32Array(n);
+    for (let y = 0; y < height; y++) {
+      let sum = 0;
+      const row = y * width;
+      for (let x = 0; x < width; x++) {
+        const i = row + x;
+        sum +=
+          which === 0
+            ? dx[i] * dx[i]
+            : which === 1
+              ? dx[i] * dy[i]
+              : dy[i] * dy[i];
+        if (x >= 5) {
+          const j = i - 5;
+          sum -=
+            which === 0
+              ? dx[j] * dx[j]
+              : which === 1
+                ? dx[j] * dy[j]
+                : dy[j] * dy[j];
+        }
+        if (x >= 4) across[i - 2] = sum;
+      }
+    }
+    const down = new Float32Array(n);
+    for (let x = 0; x < width; x++) {
+      let sum = 0;
+      for (let y = 0; y < height; y++) {
+        const i = y * width + x;
+        sum += across[i];
+        if (y >= 5) sum -= across[i - 5 * width];
+        if (y >= 4) down[i - 2 * width] = sum;
+      }
+    }
+    return down;
+  });
+  const [xx, xy, yy] = sums;
+  const columns = Math.ceil(width / cell);
+  const rows = Math.ceil(height / cell);
+  const score = new Float32Array(columns * rows);
+  const at = new Int32Array(columns * rows).fill(-1);
+  let best = 0;
+  for (let y = 4; y < height - 4; y++)
+    for (let x = 4; x < width - 4; x++) {
+      const i = y * width + x;
+      const a = xx[i];
+      const c = yy[i];
+      const value = (a + c) / 2 - Math.sqrt(((a - c) / 2) ** 2 + xy[i] * xy[i]);
+      const k = Math.floor(y / cell) * columns + Math.floor(x / cell);
+      if (value > score[k] && accept(x, y)) {
+        score[k] = value;
+        at[k] = i;
+        if (value > best) best = value;
+      }
+    }
+  const floor = Math.max(best * 0.02, 1e-3);
+  return Array.from(at.keys())
+    .filter((k) => at[k] >= 0 && score[k] >= floor)
+    .sort((p, q) => score[q] - score[p])
+    .slice(0, maxPoints)
+    .map((k) => ({ x: at[k] % width, y: Math.floor(at[k] / width) }));
 }
 
 /**
@@ -700,6 +794,44 @@ export function patchAgreement(
   return { agree, compared };
 }
 
+/**
+ * `frame` seen through `h`: the value at (x, y) is `frame` at h(x, y), so a
+ * frame that shows the keyframe moved by `h` comes out looking like the
+ * keyframe. Only a box `margin` around `points` is filled; the rest is
+ * mid-grey.
+ */
+function resample(
+  frame: Gray,
+  h: Homography,
+  points: readonly Point[],
+  margin: number,
+): Gray {
+  const { width, height } = frame;
+  const data = new Float32Array(width * height).fill(128);
+  let x0 = width,
+    y0 = height,
+    x1 = 0,
+    y1 = 0;
+  for (const p of points) {
+    x0 = Math.min(x0, p.x);
+    y0 = Math.min(y0, p.y);
+    x1 = Math.max(x1, p.x);
+    y1 = Math.max(y1, p.y);
+  }
+  x0 = Math.max(0, Math.floor(x0 - margin));
+  y0 = Math.max(0, Math.floor(y0 - margin));
+  x1 = Math.min(width - 1, Math.ceil(x1 + margin));
+  y1 = Math.min(height - 1, Math.ceil(y1 + margin));
+  for (let y = y0; y <= y1; y++)
+    for (let x = x0; x <= x1; x++) {
+      const u = h[0] * x + h[1] * y + h[2];
+      const v = h[3] * x + h[4] * y + h[5];
+      if (u >= 0 && v >= 0 && u <= width - 1 && v <= height - 1)
+        data[y * width + x] = bilinear(frame.data, width, height, u, v);
+    }
+  return { width, height, data };
+}
+
 function insideConvex(
   polygon: readonly Point[],
   x: number,
@@ -731,6 +863,20 @@ function compose(a: Homography, b: Homography): Homography {
 const IDENTITY: Homography = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 
 /** A frame whose points every later frame is matched against directly. */
+/** Described keyframe corners, as a multiple of the points followed. */
+const REFIND_DENSITY = 3;
+/** Described corners of the frame searched, as the same multiple. */
+const REFIND_FRAME_DENSITY = 6;
+/** Side of the image blocks that give one corner each when searching. */
+const REFIND_CELL = 5;
+/** Fewest corners of the neck that must look as they did in the keyframe. */
+const REFIND_NECK = 8;
+/** Rough poses tried per keyframe: groups of matches that agree. */
+const REFIND_POSES = 3;
+/** Share of a keyframe's points that must be followed into a re-found view. */
+const REFIND_SHARE = 0.2;
+/** Movement between two frames, in tracking windows, that counts as a leap. */
+const LEAP_WINDOWS = 2;
 /** Failed frames during which every frame is searched for the neck. */
 const REFIND_EAGER_FRAMES = 30;
 /** After that, one frame in this many is searched. */
@@ -741,8 +887,15 @@ interface Keyframe {
   points: Point[];
   /** Reference → this keyframe. */
   pose: Homography;
-  /** The points' descriptors, made the first time the neck must be re-found. */
+  /** Hand boxes when the keyframe was taken. */
+  exclude: readonly Box[];
+  /**
+   * Descriptors of corners of the oud around the neck, made the first time
+   * the neck must be re-found.
+   */
   described?: Described;
+  /** Corners on the neck (more of them than `points`), made then too. */
+  near?: Point[];
 }
 
 export class NeckTracker {
@@ -870,6 +1023,21 @@ export class NeckTracker {
       this.show(refound.pose);
       return this.result(refound.inliers, refound.points);
     }
+    // A leap between two frames is where optical flow is least to be
+    // trusted (it can settle a little way along the strings): look for the
+    // neck by appearance too, and prefer that when it is found.
+    if (
+      this.options.refindAfter > 0 &&
+      this.status === "tracking" &&
+      this.apart(fit.h, this.motion) > LEAP_WINDOWS * this.options.window
+    ) {
+      const refound = this.refind(frame, levels, exclude);
+      if (refound) {
+        this.failures = 0;
+        this.show(refound.pose);
+        return this.result(refound.inliers, refound.points);
+      }
+    }
     this.failures = 0;
     this.status = "tracking";
     this.motion = fit.h;
@@ -900,6 +1068,19 @@ export class NeckTracker {
     }
     this.show(pose);
     return this.result(inliers, followed);
+  }
+
+  /** Farthest any calibration corner lies between two motions of the keyframe. */
+  private apart(a: Homography, b: Homography): number {
+    const pose = this.key?.pose ?? IDENTITY;
+    return this.referenceCorners.reduce((max, p) => {
+      const q = transformPoint(pose, p);
+      const u = q && transformPoint(a, q);
+      const v = q && transformPoint(b, q);
+      return u && v
+        ? Math.max(max, Math.hypot(u.x - v.x, u.y - v.y))
+        : Infinity;
+    }, 0);
   }
 
   /** Carries the calibration corners by `pose`, ignoring sub-pixel noise. */
@@ -971,7 +1152,7 @@ export class NeckTracker {
   /**
    * Looks for the neck anywhere in the frame by appearance: the latest
    * keyframe first (it looks most like now), then the original reference.
-   * On success the frame becomes the new keyframe.
+   * On success the frame becomes the new keyframe. Nothing changes otherwise.
    */
   private refind(
     frame: Gray,
@@ -981,10 +1162,10 @@ export class NeckTracker {
     const border = DESCRIPTOR_BORDER;
     const here = describe(
       frame,
-      goodFeatures(
+      strongestCorners(
         levels[0],
-        4 * this.options.maxPoints,
-        5,
+        REFIND_FRAME_DENSITY * this.options.maxPoints,
+        REFIND_CELL,
         (x, y) =>
           x >= border &&
           y >= border &&
@@ -993,48 +1174,202 @@ export class NeckTracker {
           !this.excluded({ x, y }, frame, exclude),
       ),
     );
-    const { refindInliers } = this.options;
+    const { refindInliers, threshold, minInliers } = this.options;
     if (here.points.length < refindInliers) return null;
     const anchors = [this.key, this.origin].filter(
       (k, i, all): k is Keyframe => !!k && all.indexOf(k) === i,
     );
     for (const anchor of anchors) {
-      anchor.described ??= describe(anchor.levels[0].image, anchor.points);
-      const matches = matchDescriptors(anchor.described, here);
-      const fit = fitSimilarity(
-        matches.map((m) => m.from),
-        matches.map((m) => m.to),
-        2 * this.options.threshold,
-        refindInliers,
-        400,
+      const image = anchor.levels[0];
+      // The oud around the neck, which is far easier to recognise than
+      // the neck alone.
+      anchor.described ??= describe(
+        image.image,
+        this.corners(image, this.surroundings(anchor.pose), anchor.exclude),
       );
-      if (!fit) continue;
-      // An oud does not change size several-fold or turn upside down (more
-      // than a quarter turn from where it was calibrated).
-      const scale = Math.hypot(fit.h[0], fit.h[3]);
-      if (!(scale > 0.5 && scale < 2)) continue;
-      if (!(compose(fit.h, anchor.pose)[0] > 0)) continue;
-      const seen = patchAgreement(
-        anchor.levels[0].image,
-        frame,
-        anchor.points,
-        fit.h,
+      const need = Math.max(
+        minInliers,
+        Math.ceil(anchor.described.points.length * REFIND_SHARE),
       );
-      if (seen.agree < refindInliers || seen.agree < 0.4 * seen.compared)
-        continue;
-      const pose = compose(fit.h, anchor.pose);
+      anchor.near ??= this.corners(
+        image,
+        this.region(anchor.pose),
+        anchor.exclude,
+      );
+      let matches = matchDescriptors(anchor.described, here);
+      // Where the camera stayed put and the oud moved, the background
+      // agrees on "nothing moved" and may be the largest group of matches;
+      // the oud's own are another. Each group gets its turn, and the pose
+      // under which the neck itself looks most like the keyframe wins.
+      let best: {
+        h: Homography;
+        inliers: number;
+        points: number;
+        neck: number;
+      } | null = null;
+      for (let attempt = 0; attempt < REFIND_POSES; attempt++) {
+        // 1. A rough pose from a few matches that agree.
+        const rough = fitSimilarity(
+          matches.map((m) => m.from),
+          matches.map((m) => m.to),
+          2 * threshold,
+          refindInliers,
+          600,
+        );
+        if (!rough) break;
+        matches = matches.filter((_, i) => !rough.inliers[i]);
+        const h = this.confirm(anchor, rough.h, frame, levels, exclude, need);
+        if (h && (!best || h.neck > best.neck)) best = h;
+      }
+      if (!best) continue;
+      const pose = compose(best.h, anchor.pose);
       const key = this.keyframe(levels, pose, exclude);
-      if (key.points.length < refindInliers) continue;
+      if (key.points.length < minInliers) continue;
       this.key = key;
       this.motion = IDENTITY;
       this.sinceAnchor = 0;
-      return {
-        pose,
-        inliers: fit.inliers.filter(Boolean).length,
-        points: matches.length,
-      };
+      return { pose, inliers: best.inliers, points: best.points };
     }
     return null;
+  }
+
+  /**
+   * Checks a rough pose of `anchor` in `frame` and refines it; null when
+   * the frame does not show the neck there.
+   */
+  private confirm(
+    anchor: Keyframe,
+    rough: Homography,
+    frame: Gray,
+    levels: Level[],
+    exclude: readonly Box[],
+    need: number,
+  ): { h: Homography; inliers: number; points: number; neck: number } | null {
+    const { threshold, window } = this.options;
+    // An oud does not change size several-fold or turn upside down (more
+    // than a quarter turn from where it was calibrated).
+    const scale = Math.hypot(rough[0], rough[3]);
+    if (!(scale > 0.5 && scale < 2)) return null;
+    if (!(compose(rough, anchor.pose)[0] > 0)) return null;
+    // Undo the pose and follow the keyframe's points into the result,
+    // exactly as in ordinary tracking: a few chance matches do not survive
+    // this, and it brings the pose to sub-pixel accuracy.
+    const visible = (anchor.described?.points ?? anchor.points).filter((p) => {
+      const q = transformPoint(rough, p);
+      return !!q && !this.excluded(q, frame, exclude);
+    });
+    if (visible.length < need) return null;
+    const view = pyramid(
+      resample(frame, rough, visible, 3 * window),
+      levels.length,
+    );
+    const found = trackPoints(anchor.levels, view, visible, null, window);
+    const pairs = visible
+      .map((from, i) => ({ from, to: found[i] }))
+      .filter((pair): pair is { from: Point; to: Point } => !!pair.to);
+    const residual = fitSimilarity(
+      pairs.map((p) => p.from),
+      pairs.map((p) => p.to),
+      threshold,
+      need,
+    );
+    if (!residual) return null;
+    // The correction must be a small one: the rough pose was nearly right.
+    const correction = this.referenceCorners.reduce((max, p) => {
+      const a = transformPoint(anchor.pose, p);
+      const b = a && transformPoint(residual.h, a);
+      return a && b
+        ? Math.max(max, Math.hypot(a.x - b.x, a.y - b.y))
+        : Infinity;
+    }, 0);
+    if (!(correction <= 2 * window)) return null;
+    const h = compose(rough, residual.h);
+    // And the picture itself must agree around those points.
+    const seen = patchAgreement(
+      anchor.levels[0].image,
+      frame,
+      pairs.filter((_, i) => residual.inliers[i]).map((pair) => pair.from),
+      h,
+    );
+    if (seen.agree < need || seen.agree < 0.4 * seen.compared) return null;
+    // That much the room behind the oud could have passed on its own. The
+    // neck is what matters: its corners must look as they did. (Brightness
+    // patches rather than flow here: a string looks right wherever along
+    // itself flow settles, and under a hand nothing can be followed.)
+    const neck = patchAgreement(
+      anchor.levels[0].image,
+      frame,
+      (anchor.near ?? anchor.points).filter((p) => {
+        const q = transformPoint(h, p);
+        return !!q && !this.excluded(q, frame, exclude);
+      }),
+      h,
+    );
+    if (neck.agree < REFIND_NECK || neck.agree < 0.4 * neck.compared)
+      return null;
+    return {
+      h: this.local(anchor, h, frame, levels.length, exclude),
+      inliers: residual.inliers.filter(Boolean).length,
+      points: pairs.length,
+      neck: neck.agree / neck.compared,
+    };
+  }
+
+  /**
+   * `h` settled on the neck's own corners where enough of them can be
+   * followed. The oud is not flat and the camera not far away, so the pose
+   * that fits the whole instrument best is a little off at the neck.
+   */
+  private local(
+    anchor: Keyframe,
+    h: Homography,
+    frame: Gray,
+    levels: number,
+    exclude: readonly Box[],
+  ): Homography {
+    const { threshold, window, minInliers } = this.options;
+    const points = (anchor.near ?? anchor.points).filter((p) => {
+      const q = transformPoint(h, p);
+      return !!q && !this.excluded(q, frame, exclude);
+    });
+    if (points.length < minInliers) return h;
+    const view = pyramid(resample(frame, h, points, 3 * window), levels);
+    const found = trackPoints(anchor.levels, view, points, null, window);
+    const pairs = points
+      .map((from, i) => ({ from, to: found[i] }))
+      .filter((pair): pair is { from: Point; to: Point } => !!pair.to);
+    const fit = fitSimilarity(
+      pairs.map((p) => p.from),
+      pairs.map((p) => p.to),
+      threshold,
+      Math.max(minInliers, Math.ceil(points.length * 0.45)),
+    );
+    if (!fit) return h;
+    const moved = this.referenceCorners.reduce((max, p) => {
+      const a = transformPoint(anchor.pose, p);
+      const b = a && transformPoint(fit.h, a);
+      return a && b
+        ? Math.max(max, Math.hypot(a.x - b.x, a.y - b.y))
+        : Infinity;
+    }, 0);
+    return moved <= window ? compose(h, fit.h) : h;
+  }
+
+  /** Corners for searching inside `polygon`: more of them, hands left out. */
+  private corners(
+    level: Level,
+    polygon: Point[] | null,
+    exclude: readonly Box[],
+  ): Point[] {
+    if (!polygon) return [];
+    return strongestCorners(
+      level,
+      REFIND_DENSITY * this.options.maxPoints,
+      REFIND_CELL,
+      (x, y) =>
+        insideConvex(polygon, x, y) &&
+        !this.excluded({ x, y }, level.image, exclude),
+    );
   }
 
   private keyframe(
@@ -1042,7 +1377,12 @@ export class NeckTracker {
     pose: Homography,
     exclude: readonly Box[],
   ): Keyframe {
-    return { levels, pose, points: this.detect(levels[0], pose, exclude) };
+    return {
+      levels,
+      pose,
+      points: this.detect(levels[0], pose, exclude),
+      exclude,
+    };
   }
 
   private result(inliers: number, points: number): NeckResult {
@@ -1113,6 +1453,50 @@ export class NeckTracker {
       const inReference = transformPoint(toImage, p);
       return inReference && transformPoint(pose, inReference);
     });
+    return corners.every(Boolean) ? (corners as Point[]) : null;
+  }
+
+  /**
+   * The oud around the neck, in the image: the pegbox, and the face with its
+   * rosettes, move with the neck and are far easier to recognise than
+   * strings on dark wood. Background inside it is harmless: it does not
+   * agree on a pose.
+   */
+  private surroundings(pose: Homography): Point[] | null {
+    const [nutLow, nutHigh, endHigh, endLow] = this.referenceCorners;
+    if (!endLow) return null;
+    const nut = {
+      x: (nutLow.x + nutHigh.x) / 2,
+      y: (nutLow.y + nutHigh.y) / 2,
+    };
+    const end = {
+      x: (endLow.x + endHigh.x) / 2,
+      y: (endLow.y + endHigh.y) / 2,
+    };
+    const along = { x: end.x - nut.x, y: end.y - nut.y };
+    const length = Math.hypot(along.x, along.y);
+    if (length < 1) return null;
+    const width =
+      (Math.hypot(nutHigh.x - nutLow.x, nutHigh.y - nutLow.y) +
+        Math.hypot(endHigh.x - endLow.x, endHigh.y - endLow.y)) /
+      2;
+    const across = {
+      x: (-along.y / length) * width,
+      y: (along.x / length) * width,
+    };
+    const [a0, a1] = SURROUNDINGS.along;
+    const c = SURROUNDINGS.across;
+    const corners = [
+      [a0, -c],
+      [a0, c],
+      [a1, c],
+      [a1, -c],
+    ].map(([a, b]) =>
+      transformPoint(pose, {
+        x: nut.x + a * along.x + b * across.x,
+        y: nut.y + a * along.y + b * across.y,
+      }),
+    );
     return corners.every(Boolean) ? (corners as Point[]) : null;
   }
 
