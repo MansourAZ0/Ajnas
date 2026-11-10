@@ -1031,8 +1031,8 @@ export function CameraPanel({
                   )
                 : lost
                   ? text(
-                      "Lost the oud's neck. Bring it back into view where it was, or recalibrate. Positions are paused.",
-                      "فُقد زند العود. أعده إلى مكانه في الصورة أو أعد المعايرة. المواضع متوقفة مؤقتاً.",
+                      "Lost the oud's neck. Bring it back into view and it is found again; recalibrate if it is not. Positions are paused.",
+                      "فُقد زند العود. أعده إلى الصورة ليُعثر عليه من جديد، وإن لم يُعثر عليه فأعد المعايرة. المواضع متوقفة مؤقتاً.",
                     )
                   : neck
                     ? text(
