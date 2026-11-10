@@ -93,23 +93,36 @@ export interface ForeignJins {
   centre: { degree: Degree; accidental: number };
   fit: number;
 }
+export interface MaqamCandidate {
+  maqam: string;
+  tonic: { degree: Degree; accidental: number };
+  variant?: string | null;
+  tonicOctave?: number | null;
+  score: number;
+  supporting: Evidence[];
+  contradicting: Evidence[];
+}
+/** The maqam of the piece as a whole, over everything played since it began. */
+export interface PerformanceReading {
+  window: [number, number];
+  notes: number;
+  status: "unknown" | "ambiguous" | "likely";
+  candidates: MaqamCandidate[];
+  tuningOffsetCents: number;
+}
 export interface Analysis {
   tonicLabels?: NoteLabel[];
+  /** Tonics of `performance.candidates`, in the same order. */
+  performanceTonicLabels?: NoteLabel[];
   activeJinsLabels?: JinsLabels | null;
   foreignJinsLabels?: JinsLabels | null;
   window: [number, number];
   notes: number;
   status: "insufficientData" | "unknown" | "ambiguous" | "likely";
-  candidates: {
-    maqam: string;
-    tonic: { degree: Degree; accidental: number };
-    variant?: string | null;
-    tonicOctave?: number | null;
-    score: number;
-    supporting: Evidence[];
-    contradicting: Evidence[];
-  }[];
+  candidates: MaqamCandidate[];
   possibleModulation: boolean;
+  /** Absent from engines before the performance reading, and until enough is played. */
+  performance?: PerformanceReading | null;
   /** Tuning offset (cents) removed before scoring. */
   tuningOffsetCents?: number;
   /** Which jins of the leading maqam the latest passage dwells in. */
@@ -134,6 +147,7 @@ export type Message =
       tonicLabels: NoteLabel[];
       activeJinsLabels?: JinsLabels | null;
       foreignJinsLabels?: JinsLabels | null;
+      performanceTonicLabels?: NoteLabel[];
     }
   | { type: "error"; message: string };
 export interface TonicOption {
