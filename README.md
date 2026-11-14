@@ -112,8 +112,7 @@ npm run tauri build -- --bundles app
 ```
 
 For browser-only UI development, `npm run dev` with `/?mock` enables a development
-IPC fixture. It is excluded from production builds. See [contributing](CONTRIBUTING.md),
-[existing validation](docs/PROGRESS.md) and the [current audit](docs/AUDIT.md).
+IPC fixture. It is excluded from production builds. See [contributing](CONTRIBUTING.md).
 
 ## Credits and license
 
@@ -126,5 +125,4 @@ integration. See [credits](CREDITS.md) for the scope of each contribution.
 
 Project code: [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
 Dependencies and model assets have their own terms. See
-[third-party notices](THIRD_PARTY_NOTICES.md) and the
-[open-source release guide](docs/OPEN_SOURCE.md).
+[third-party notices](THIRD_PARTY_NOTICES.md).
