@@ -35,7 +35,7 @@
   "description": "A local-first oud practice companion with quarter-tone tuning, maqam teaching and optional hand tracking.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/MansourAZ0/Ajnas.git"
+    "url": "https://github.com/MansourAz0-org/Ajnas.git"
   },
   "engines": {
     "node": ">=24"

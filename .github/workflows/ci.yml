@@ -10,7 +10,7 @@ env:
 
 jobs:
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v7
       - name: Authenticate dependencies while repositories are private
@@ -25,7 +25,7 @@ jobs:
           fi
           git config --global url."https://x-access-token:${DEPS_TOKEN}@github.com/".insteadOf "https://github.com/"
       - name: Fetch shared UI at its release tag
-        run: git clone --depth 1 --branch v0.8.0 https://github.com/MansourAZ0/naghma-core.git ../naghma-core
+        run: git clone --depth 1 --branch v0.8.0 https://github.com/MansourAz0-org/naghma-core.git ../naghma-core
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -42,7 +42,7 @@ jobs:
   rust:
     strategy:
       matrix:
-        os: [ubuntu-latest]
+        os: [blacksmith-2vcpu-ubuntu-2404]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7

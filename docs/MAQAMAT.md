@@ -19,7 +19,7 @@ a teaching route does not constrain recognition to that route.
 ## Source interpretation
 
 The definitions live in the independent naghma-core v0.4.0 library. See its
-[research record](https://github.com/MansourAZ0/naghma-core/blob/v0.4.0/docs/MAQAMAT_RESEARCH.md)
+[research record](https://github.com/MansourAz0-org/naghma-core/blob/v0.4.0/docs/MAQAMAT_RESEARCH.md)
 for MaqamWorld citations, exact reference tonics, Bayati on Re/Sol/La and the
 [Asmar transposition chart](https://www.turath.org/Resources/MaqamTrans.htm).
 
