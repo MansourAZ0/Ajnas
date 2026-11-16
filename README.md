@@ -37,8 +37,8 @@ Clone both repositories into the same parent folder. Ajnas uses the shared UI
 and Rust libraries from `naghma-core` **v0.8.0**:
 
 ```sh
-git clone --branch v0.8.0 https://github.com/MansourAZ0/naghma-core.git
-git clone https://github.com/MansourAZ0/Ajnas.git
+git clone --branch v0.8.0 https://github.com/MansourAz0-org/naghma-core.git
+git clone https://github.com/MansourAz0-org/Ajnas.git
 cd Ajnas
 npm ci --prefix ../naghma-core/packages/naghma-ui
 npm ci
@@ -89,9 +89,9 @@ model download. See [security and privacy](SECURITY.md).
 
 | Repository | Role |
 | --- | --- |
-| [pitchforge-rs](https://github.com/MansourAZ0/pitchforge-rs) | Generic pitch estimation. |
-| [naghma-core](https://github.com/MansourAZ0/naghma-core) | Music theory, audio worker, shared React components. |
-| [watar-tuner](https://github.com/MansourAZ0/watar-tuner) | A standalone tuner using the same libraries. |
+| [pitchforge-rs](https://github.com/MansourAz0-org/pitchforge-rs) | Generic pitch estimation. |
+| [naghma-core](https://github.com/MansourAz0-org/naghma-core) | Music theory, audio worker, shared React components. |
+| [watar-tuner](https://github.com/MansourAz0-org/watar-tuner) | A standalone tuner using the same libraries. |
 | **Ajnas** | Practice, teaching, camera and audio/vision coordination. |
 
 Ajnas consumes the libraries directly; it does not depend on Watar. Rust releases

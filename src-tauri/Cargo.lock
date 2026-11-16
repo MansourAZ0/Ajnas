@@ -1934,7 +1934,7 @@ dependencies = [
 [[package]]
 name = "naghma-audio"
 version = "0.8.0"
-source = "git+https://github.com/MansourAZ0/naghma-core?tag=v0.8.0#eb92d12a06f8ac9b958a97ffc5e46b268c0f0543"
+source = "git+https://github.com/MansourAz0-org/naghma-core?tag=v0.8.0#eb92d12a06f8ac9b958a97ffc5e46b268c0f0543"
 dependencies = [
  "cpal",
  "naghma-core",
@@ -1946,7 +1946,7 @@ dependencies = [
 [[package]]
 name = "naghma-core"
 version = "0.8.0"
-source = "git+https://github.com/MansourAZ0/naghma-core?tag=v0.8.0#eb92d12a06f8ac9b958a97ffc5e46b268c0f0543"
+source = "git+https://github.com/MansourAz0-org/naghma-core?tag=v0.8.0#eb92d12a06f8ac9b958a97ffc5e46b268c0f0543"
 dependencies = [
  "serde",
  "serde_json",
